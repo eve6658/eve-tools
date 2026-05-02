@@ -1,0 +1,12 @@
+{
+  "web_search": {
+    "name": "web_search",
+    "description": "搜索网页内容",
+    "category": "tool",
+    "source": "https://github.com/example/search",
+    "safe": true,
+    "registered": false,
+    "vetted_at": "2026-04-02T22:04:35.213048",
+    "notes": "标准搜索工具"
+  }
+}

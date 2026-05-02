@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "skills": {
+    "skill-vetter": {
+      "version": "1.0.0",
+      "installedAt": 1774571161522
+    },
+    "liang-tavily-search": {
+      "version": "1.0.1",
+      "installedAt": 1774571401865
+    },
+    "bb-browser": {
+      "version": "0.6.0",
+      "installedAt": 1774573204563
+    },
+    "multi-search-engine": {
+      "version": "2.0.1",
+      "installedAt": 1774595225641
+    },
+    "policy": {
+      "version": "2.0.3",
+      "installedAt": 1774595707235
+    },
+    "china-stock-analysis": {
+      "version": "1.0.0",
+      "installedAt": 1774596121709
+    },
+    "us-stock-analysis": {
+      "version": "0.1.1",
+      "installedAt": 1774596328620
+    },
+    "tushare-pro": {
+      "version": "1.0.0",
+      "installedAt": 1774599935486
+    },
+    "stock-daily-analysis": {
+      "version": "1.0.0",
+      "installedAt": 1774597583285
+    },
+    "tushare-data": {
+      "version": "1.1.12",
+      "installedAt": 1774600336471
+    },
+    "backtesting-trading-strategies": {
+      "version": "2.0.0",
+      "installedAt": 1774600622133
+    },
+    "data-analysis": {
+      "version": "1.0.2",
+      "installedAt": 1774775294858
+    },
+    "financial-calculator": {
+      "version": "1.0.0",
+      "installedAt": 1774775359687
+    },
+    "find-skills-skill": {
+      "version": "1.0.0",
+      "installedAt": 1774775402143
+    },
+    "humanizer-zh": {
+      "version": "1.0.0",
+      "installedAt": 1774775418351
+    },
+    "market-analysis-cn": {
+      "version": "1.0.0",
+      "installedAt": 1774775463803
+    },
+    "market-environment-analysis": {
+      "version": "0.1.0",
+      "installedAt": 1774775521875
+    },
+    "proactive-agent-lite": {
+      "version": "1.0.0",
+      "installedAt": 1774775598054
+    },
+    "stock-info-explorer": {
+      "version": "1.2.10",
+      "installedAt": 1774775659089
+    },
+    "portfolio-manager": {
+      "version": "0.1.0",
+      "installedAt": 1774775665663
+    },
+    "investoday-stock-technical-analysis": {
+      "version": "1.3.0",
+      "installedAt": 1774775671124
+    },
+    "data-visualization-studio": {
+      "version": "1.0.0",
+      "installedAt": 1774775785656
+    },
+    "economic-calendar-fetcher": {
+      "version": "0.1.0",
+      "installedAt": 1774775822366
+    },
+    "finnhub-pro": {
+      "version": "1.1.0",
+      "installedAt": 1774775830817
+    },
+    "news-summary": {
+      "version": "1.0.1",
+      "installedAt": 1774775905768
+    },
+    "self-improvement": {
+      "version": "1.0.0",
+      "installedAt": 1774775953674
+    },
+    "trading-coach": {
+      "version": "1.0.0",
+      "installedAt": 1774775961995
+    },
+    "tushare-finance": {
+      "version": "2.0.6",
+      "installedAt": 1774776014702
+    },
+    "kpi-alert-system": {
+      "version": "1.1.0",
+      "installedAt": 1774776062141
+    },
+    "capability-evolver": {
+      "version": "1.40.0",
+      "installedAt": 1774776127425
+    },
+    "ai-cfo": {
+      "version": "1.0.0",
+      "installedAt": 1774776182772
+    },
+    "jina-reader": {
+      "version": "0.0.1",
+      "installedAt": 1774776195873
+    },
+    "news-aggregator": {
+      "version": "1.0.3",
+      "installedAt": 1774776242671
+    },
+    "risk-management-specialist": {
+      "version": "2.1.1",
+      "installedAt": 1774776256777
+    },
+    "multi-factor-strategy": {
+      "version": "1.0.0",
+      "installedAt": 1774776302170
+    },
+    "einstein-research-backtest-engine-dv": {
+      "version": "0.1.0",
+      "installedAt": 1774776363067
+    },
+    "openclaw-backup-safe": {
+      "version": "1.0.1",
+      "installedAt": 1774782370717
+    },
+    "openclaw-shield": {
+      "version": "1.0.3",
+      "installedAt": 1774782381992
+    },
+    "openclaw-cli": {
+      "version": "1.0.0",
+      "installedAt": 1774782438730
+    },
+    "skill-install-guard": {
+      "version": "1.0.0",
+      "installedAt": 1774782449983
+    },
+    "skill-builder": {
+      "version": "1.0.5",
+      "installedAt": 1774782497075
+    },
+    "self-evolving-skill-1-0-2": {
+      "version": "1.0.0",
+      "installedAt": 1774782508993
+    },
+    "openclaw-skill-scanner": {
+      "version": "1.0.0",
+      "installedAt": 1774782520427
+    },
+    "openclaw-ops-guardrails": {
+      "version": "0.1.1",
+      "installedAt": 1774782556472
+    },
+    "self-improving-agent": {
+      "version": "3.0.10",
+      "installedAt": 1774782569473
+    }
+  }
+}

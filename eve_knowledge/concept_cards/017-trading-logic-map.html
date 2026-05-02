@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>交易逻辑思维图</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'PingFang SC', sans-serif; background: #0a0e17; color: #e0e0e0; overflow: hidden; }
+  
+  #canvas { width: 100vw; height: 100vh; position: relative; }
+  
+  /* 节点样式 */
+  .node {
+    position: absolute;
+    border-radius: 12px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    z-index: 2;
+    max-width: 220px;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .node:hover { transform: scale(1.08); z-index: 10; }
+  
+  .core { background: linear-gradient(135deg, #1a1a2e, #16213e); border: 2px solid #e94560; color: #fff; font-weight: bold; font-size: 15px; max-width: 260px; }
+  .concept { background: linear-gradient(135deg, #1a2332, #1e3a5f); border: 2px solid #4fc3f7; }
+  .insight { background: linear-gradient(135deg, #2a1a2e, #3e1640); border: 2px solid #ce93d8; }
+  .action { background: linear-gradient(135deg, #1a2e1a, #1e3e16); border: 2px solid #81c784; }
+  .warning { background: linear-gradient(135deg, #2e2a1a, #3e3016); border: 2px solid #ffb74d; }
+  
+  .node .label { font-weight: 600; margin-bottom: 6px; }
+  .node .desc { font-size: 11px; opacity: 0.85; }
+  .node .tag { display: inline-block; font-size: 9px; padding: 2px 6px; border-radius: 4px; margin-top: 6px; opacity: 0.7; }
+  .tag-price { background: #4fc3f7; color: #000; }
+  .tag-vol { background: #ce93d8; color: #000; }
+  .tag-trend { background: #81c784; color: #000; }
+  .tag-psych { background: #ffb74d; color: #000; }
+  
+  /* SVG 连线 */
+  svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+  path { fill: none; stroke-width: 1.5; opacity: 0.5; }
+  .arrow-price { stroke: #4fc3f7; }
+  .arrow-vol { stroke: #ce93d8; }
+  .arrow-action { stroke: #81c784; }
+  .arrow-warn { stroke: #ffb74d; }
+  .arrow-core { stroke: #e94560; stroke-width: 2; opacity: 0.7; }
+  
+  /* 标题 */
+  h1 { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); font-size: 20px; z-index: 100; color: #e94560; text-shadow: 0 0 20px rgba(233,69,96,0.3); }
+  
+  /* 图例 */
+  .legend { position: fixed; bottom: 16px; left: 16px; font-size: 11px; z-index: 100; opacity: 0.6; }
+  .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<h1>🧠 交易逻辑思维图 — 价格墙 × 成交量 × 主力博弈</h1>
+
+<div id="canvas">
+  <svg id="lines"></svg>
+</div>
+
+<div class="legend">
+  <span style="background:#e94560"></span>核心 &nbsp;
+  <span style="background:#4fc3f7"></span>价格墙 &nbsp;
+  <span style="background:#ce93d8"></span>成交量 &nbsp;
+  <span style="background:#81c784"></span>操作 &nbsp;
+  <span style="background:#ffb74d"></span>心理/陷阱
+</div>
+
+<script>
+const nodes = [
+  // 核心
+  { id: 'core', x: 50, y: 45, type: 'core', label: '主力造势\n散户接盘', desc: '所有逻辑的起点：主力制造气氛，散户FOMO涌入', tag: null },
+  
+  // 价格墙体系
+  { id: 'pw1', x: 18, y: 22, type: 'concept', label: '价格墙 = 控制者意图', desc: '天花板（压单）+ 地板（托单）= 主力画的框', tag: ['price', '价格墙'] },
+  { id: 'pw2', x: 8, y: 42, type: 'concept', label: '墙的厚度变化', desc: '25万→10万→5万→消失 = 准备发车', tag: ['price', '价格墙'] },
+  { id: 'pw3', x: 8, y: 62, type: 'concept', label: '反向操作', desc: '人多→撤地板洗盘\n人少→撤天花板喷发', tag: ['price', '价格墙'] },
+  
+  // 成交量体系
+  { id: 'vol1', x: 82, y: 22, type: 'insight', label: '成交量 = 分歧', desc: '不告诉你谁对，只告诉你有人在打架', tag: ['vol', '成交量'] },
+  { id: 'vol2', x: 92, y: 42, type: 'insight', label: '谁卖给你的？', desc: '卖的人不认为是底部 / 主力对倒制造假象', tag: ['vol', '成交量'] },
+  { id: 'vol3', x: 92, y: 62, type: 'insight', label: '放量≠主力进场', desc: '底部放量可能是主力出货给抄底的人', tag: ['vol', '成交量'] },
+  
+  // 心理陷阱
+  { id: 'psy1', x: 30, y: 78, type: 'warning', label: 'T+1 单边市场', desc: '5000万进→涨10%→500万浮盈→百分百想逃', tag: ['psych', '心理'] },
+  { id: 'psy2', x: 70, y: 78, type: 'warning', label: '长线投资的本质', desc: '让你锁定筹码→不砸盘→市场稳定', tag: ['psych', '心理'] },
+  
+  // 操作节点
+  { id: 'act1', x: 30, y: 35, type: 'action', label: '价格墙变薄+放量', desc: '万手压单消失 + 成交放大 = 发车信号', tag: ['trend', '操作'] },
+  { id: 'act2', x: 70, y: 35, type: 'action', label: '高位放巨量冲高回落', desc: '主力大规模派发，危险信号', tag: ['trend', '操作'] },
+  { id: 'act3', x: 50, y: 88, type: 'action', label: '你卖给谁？', desc: '能在别人想买的时候卖出 = 真赚钱', tag: ['trend', '操作'] },
+];
+
+const edges = [
+  // 核心→各体系
+  { from: 'core', to: 'pw1', type: 'arrow-core' },
+  { from: 'core', to: 'vol1', type: 'arrow-core' },
+  { from: 'core', to: 'act1', type: 'arrow-core' },
+  
+  // 价格墙内部
+  { from: 'pw1', to: 'pw2', type: 'arrow-price' },
+  { from: 'pw2', to: 'pw3', type: 'arrow-price' },
+  { from: 'pw2', to: 'act1', type: 'arrow-price' },
+  
+  // 成交量内部
+  { from: 'vol1', to: 'vol2', type: 'arrow-vol' },
+  { from: 'vol2', to: 'vol3', type: 'arrow-vol' },
+  { from: 'vol2', to: 'act2', type: 'arrow-vol' },
+  
+  // 价格墙 ↔ 成交量 交叉验证
+  { from: 'pw3', to: 'vol3', type: 'arrow-warn' },
+  { from: 'act1', to: 'vol1', type: 'arrow-action' },
+  
+  // 心理层
+  { from: 'psy1', to: 'psy2', type: 'arrow-warn' },
+  { from: 'psy1', to: 'act3', type: 'arrow-warn' },
+  { from: 'psy2', to: 'act3', type: 'arrow-warn' },
+  { from: 'act2', to: 'psy1', type: 'arrow-warn' },
+];
+
+const canvas = document.getElementById('canvas');
+const svg = document.getElementById('lines');
+const W = window.innerWidth;
+const H = window.innerHeight;
+
+// 渲染节点
+nodes.forEach(n => {
+  const el = document.createElement('div');
+  el.className = `node ${n.type}`;
+  el.style.left = `${n.x * W / 100 - 110}px`;
+  el.style.top = `${n.y * H / 100 - 40}px`;
+  
+  let html = `<div class="label">${n.label}</div><div class="desc">${n.desc}</div>`;
+  if (n.tag) html += `<span class="tag tag-${n.tag[0]}">${n.tag[1]}</span>`;
+  el.innerHTML = html;
+  el.dataset.id = n.id;
+  canvas.appendChild(el);
+});
+
+// 渲染连线
+function getNodeCenter(id) {
+  const el = canvas.querySelector(`[data-id="${id}"]`);
+  return {
+    x: parseInt(el.style.left) + el.offsetWidth / 2,
+    y: parseInt(el.style.top) + el.offsetHeight / 2
+  };
+}
+
+function drawArrow(from, to, type) {
+  const a = getNodeCenter(from);
+  const b = getNodeCenter(to);
+  
+  // 贝塞尔曲线
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const cx = mx - dy * 0.15;
+  const cy = my + dx * 0.15;
+  
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', `M${a.x},${a.y} Q${cx},${cy} ${b.x},${b.y}`);
+  path.setAttribute('class', type);
+  svg.appendChild(path);
+}
+
+edges.forEach(e => drawArrow(e.from, e.to, e.type));
+</script>
+</body>
+</html>

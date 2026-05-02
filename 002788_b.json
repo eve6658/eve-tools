@@ -1,0 +1,1054 @@
+{
+  "type": "orderbook",
+  "asks": [
+    {
+      "side": "Ask",
+      "idx": 2,
+      "price": 15.33,
+      "vol": 82
+    },
+    {
+      "side": "Ask",
+      "idx": 3,
+      "price": 15.35,
+      "vol": 162
+    },
+    {
+      "side": "Ask",
+      "idx": 4,
+      "price": 15.37,
+      "vol": 238
+    },
+    {
+      "side": "Ask",
+      "idx": 5,
+      "price": 15.38,
+      "vol": 81
+    },
+    {
+      "side": "Ask",
+      "idx": 6,
+      "price": 15.4,
+      "vol": 103
+    },
+    {
+      "side": "Ask",
+      "idx": 7,
+      "price": 15.41,
+      "vol": 85
+    },
+    {
+      "side": "Ask",
+      "idx": 8,
+      "price": 15.42,
+      "vol": 152
+    },
+    {
+      "side": "Ask",
+      "idx": 9,
+      "price": 15.43,
+      "vol": 43
+    },
+    {
+      "side": "Ask",
+      "idx": 10,
+      "price": 15.44,
+      "vol": 13
+    },
+    {
+      "side": "Ask",
+      "idx": 11,
+      "price": 15.45,
+      "vol": 30
+    },
+    {
+      "side": "Ask",
+      "idx": 12,
+      "price": 15.46,
+      "vol": 75
+    },
+    {
+      "side": "Ask",
+      "idx": 13,
+      "price": 15.47,
+      "vol": 76
+    },
+    {
+      "side": "Ask",
+      "idx": 14,
+      "price": 15.48,
+      "vol": 12
+    },
+    {
+      "side": "Ask",
+      "idx": 15,
+      "price": 15.49,
+      "vol": 50
+    },
+    {
+      "side": "Ask",
+      "idx": 16,
+      "price": 15.5,
+      "vol": 593
+    },
+    {
+      "side": "Ask",
+      "idx": 17,
+      "price": 15.51,
+      "vol": 47
+    },
+    {
+      "side": "Ask",
+      "idx": 18,
+      "price": 15.52,
+      "vol": 48
+    },
+    {
+      "side": "Ask",
+      "idx": 19,
+      "price": 15.53,
+      "vol": 139
+    },
+    {
+      "side": "Ask",
+      "idx": 20,
+      "price": 15.54,
+      "vol": 33
+    },
+    {
+      "side": "Ask",
+      "idx": 21,
+      "price": 15.55,
+      "vol": 506
+    },
+    {
+      "side": "Ask",
+      "idx": 22,
+      "price": 15.56,
+      "vol": 257
+    },
+    {
+      "side": "Ask",
+      "idx": 23,
+      "price": 15.57,
+      "vol": 857
+    },
+    {
+      "side": "Ask",
+      "idx": 24,
+      "price": 15.58,
+      "vol": 706
+    },
+    {
+      "side": "Ask",
+      "idx": 25,
+      "price": 15.59,
+      "vol": 283
+    },
+    {
+      "side": "Ask",
+      "idx": 26,
+      "price": 15.6,
+      "vol": 1082
+    },
+    {
+      "side": "Ask",
+      "idx": 27,
+      "price": 15.61,
+      "vol": 203
+    },
+    {
+      "side": "Ask",
+      "idx": 28,
+      "price": 15.62,
+      "vol": 667
+    },
+    {
+      "side": "Ask",
+      "idx": 29,
+      "price": 15.63,
+      "vol": 297
+    },
+    {
+      "side": "Ask",
+      "idx": 30,
+      "price": 15.64,
+      "vol": 547
+    },
+    {
+      "side": "Ask",
+      "idx": 41,
+      "price": 15.75,
+      "vol": 591
+    },
+    {
+      "side": "Ask",
+      "idx": 42,
+      "price": 15.76,
+      "vol": 18
+    },
+    {
+      "side": "Ask",
+      "idx": 43,
+      "price": 15.77,
+      "vol": 112
+    },
+    {
+      "side": "Ask",
+      "idx": 44,
+      "price": 15.78,
+      "vol": 323
+    },
+    {
+      "side": "Ask",
+      "idx": 45,
+      "price": 15.79,
+      "vol": 188
+    },
+    {
+      "side": "Ask",
+      "idx": 46,
+      "price": 15.8,
+      "vol": 1112
+    },
+    {
+      "side": "Ask",
+      "idx": 47,
+      "price": 15.81,
+      "vol": 87
+    },
+    {
+      "side": "Ask",
+      "idx": 48,
+      "price": 15.82,
+      "vol": 76
+    },
+    {
+      "side": "Ask",
+      "idx": 49,
+      "price": 15.83,
+      "vol": 17
+    },
+    {
+      "side": "Ask",
+      "idx": 50,
+      "price": 15.84,
+      "vol": 86
+    },
+    {
+      "side": "Ask",
+      "idx": 51,
+      "price": 15.85,
+      "vol": 276
+    },
+    {
+      "side": "Ask",
+      "idx": 52,
+      "price": 15.86,
+      "vol": 278
+    },
+    {
+      "side": "Ask",
+      "idx": 53,
+      "price": 15.87,
+      "vol": 247
+    },
+    {
+      "side": "Ask",
+      "idx": 54,
+      "price": 15.88,
+      "vol": 691
+    },
+    {
+      "side": "Ask",
+      "idx": 55,
+      "price": 15.89,
+      "vol": 239
+    },
+    {
+      "side": "Ask",
+      "idx": 56,
+      "price": 15.9,
+      "vol": 445
+    },
+    {
+      "side": "Ask",
+      "idx": 57,
+      "price": 15.91,
+      "vol": 82
+    },
+    {
+      "side": "Ask",
+      "idx": 58,
+      "price": 15.92,
+      "vol": 56
+    },
+    {
+      "side": "Ask",
+      "idx": 59,
+      "price": 15.93,
+      "vol": 67
+    },
+    {
+      "side": "Ask",
+      "idx": 60,
+      "price": 15.94,
+      "vol": 133
+    },
+    {
+      "side": "Ask",
+      "idx": 61,
+      "price": 15.95,
+      "vol": 470
+    },
+    {
+      "side": "Ask",
+      "idx": 64,
+      "price": 15.98,
+      "vol": 465
+    },
+    {
+      "side": "Ask",
+      "idx": 65,
+      "price": 15.99,
+      "vol": 657
+    },
+    {
+      "side": "Ask",
+      "idx": 66,
+      "price": 16.0,
+      "vol": 2016
+    },
+    {
+      "side": "Ask",
+      "idx": 67,
+      "price": 16.02,
+      "vol": 41
+    },
+    {
+      "side": "Ask",
+      "idx": 68,
+      "price": 16.03,
+      "vol": 221
+    },
+    {
+      "side": "Ask",
+      "idx": 69,
+      "price": 16.04,
+      "vol": 29
+    },
+    {
+      "side": "Ask",
+      "idx": 70,
+      "price": 16.05,
+      "vol": 40
+    },
+    {
+      "side": "Ask",
+      "idx": 71,
+      "price": 16.06,
+      "vol": 75
+    },
+    {
+      "side": "Ask",
+      "idx": 72,
+      "price": 16.07,
+      "vol": 11
+    },
+    {
+      "side": "Ask",
+      "idx": 73,
+      "price": 16.08,
+      "vol": 75
+    },
+    {
+      "side": "Ask",
+      "idx": 74,
+      "price": 16.09,
+      "vol": 4
+    },
+    {
+      "side": "Ask",
+      "idx": 75,
+      "price": 16.1,
+      "vol": 731
+    },
+    {
+      "side": "Ask",
+      "idx": 76,
+      "price": 16.11,
+      "vol": 33
+    },
+    {
+      "side": "Ask",
+      "idx": 77,
+      "price": 16.12,
+      "vol": 139
+    },
+    {
+      "side": "Ask",
+      "idx": 78,
+      "price": 16.13,
+      "vol": 2
+    },
+    {
+      "side": "Ask",
+      "idx": 79,
+      "price": 16.14,
+      "vol": 4
+    },
+    {
+      "side": "Ask",
+      "idx": 80,
+      "price": 16.15,
+      "vol": 136
+    },
+    {
+      "side": "Ask",
+      "idx": 81,
+      "price": 16.16,
+      "vol": 35
+    },
+    {
+      "side": "Ask",
+      "idx": 82,
+      "price": 16.17,
+      "vol": 111
+    },
+    {
+      "side": "Ask",
+      "idx": 83,
+      "price": 16.18,
+      "vol": 242
+    },
+    {
+      "side": "Ask",
+      "idx": 84,
+      "price": 16.19,
+      "vol": 3
+    },
+    {
+      "side": "Ask",
+      "idx": 85,
+      "price": 16.2,
+      "vol": 505
+    },
+    {
+      "side": "Ask",
+      "idx": 86,
+      "price": 16.21,
+      "vol": 4
+    },
+    {
+      "side": "Ask",
+      "idx": 87,
+      "price": 16.22,
+      "vol": 7
+    },
+    {
+      "side": "Ask",
+      "idx": 88,
+      "price": 16.23,
+      "vol": 57
+    },
+    {
+      "side": "Ask",
+      "idx": 89,
+      "price": 16.24,
+      "vol": 33
+    },
+    {
+      "side": "Ask",
+      "idx": 90,
+      "price": 16.25,
+      "vol": 188
+    },
+    {
+      "side": "Ask",
+      "idx": 91,
+      "price": 16.26,
+      "vol": 2
+    },
+    {
+      "side": "Ask",
+      "idx": 92,
+      "price": 16.27,
+      "vol": 5
+    },
+    {
+      "side": "Ask",
+      "idx": 94,
+      "price": 16.29,
+      "vol": 24
+    },
+    {
+      "side": "Ask",
+      "idx": 95,
+      "price": 16.3,
+      "vol": 389
+    },
+    {
+      "side": "Ask",
+      "idx": 96,
+      "price": 16.31,
+      "vol": 23
+    },
+    {
+      "side": "Ask",
+      "idx": 97,
+      "price": 16.32,
+      "vol": 23
+    },
+    {
+      "side": "Ask",
+      "idx": 98,
+      "price": 16.33,
+      "vol": 20
+    },
+    {
+      "side": "Ask",
+      "idx": 99,
+      "price": 16.34,
+      "vol": 68
+    },
+    {
+      "side": "Ask",
+      "idx": 100,
+      "price": 16.35,
+      "vol": 206
+    },
+    {
+      "side": "Ask",
+      "idx": 101,
+      "price": 16.36,
+      "vol": 36
+    },
+    {
+      "side": "Ask",
+      "idx": 102,
+      "price": 16.37,
+      "vol": 1
+    },
+    {
+      "side": "Ask",
+      "idx": 103,
+      "price": 16.38,
+      "vol": 121
+    },
+    {
+      "side": "Ask",
+      "idx": 104,
+      "price": 16.39,
+      "vol": 84
+    },
+    {
+      "side": "Ask",
+      "idx": 105,
+      "price": 16.4,
+      "vol": 192
+    },
+    {
+      "side": "Ask",
+      "idx": 106,
+      "price": 16.41,
+      "vol": 110
+    },
+    {
+      "side": "Ask",
+      "idx": 107,
+      "price": 16.42,
+      "vol": 73
+    },
+    {
+      "side": "Ask",
+      "idx": 124,
+      "price": 16.61,
+      "vol": 637
+    },
+    {
+      "side": "Ask",
+      "idx": 125,
+      "price": 16.62,
+      "vol": 326
+    },
+    {
+      "side": "Ask",
+      "idx": 127,
+      "price": 16.64,
+      "vol": 9638
+    }
+  ],
+  "bids": [
+    {
+      "side": "Bid",
+      "idx": 2,
+      "price": 15.28,
+      "vol": 87
+    },
+    {
+      "side": "Bid",
+      "idx": 3,
+      "price": 15.27,
+      "vol": 41
+    },
+    {
+      "side": "Bid",
+      "idx": 4,
+      "price": 15.2,
+      "vol": 66
+    },
+    {
+      "side": "Bid",
+      "idx": 5,
+      "price": 15.25,
+      "vol": 134
+    },
+    {
+      "side": "Bid",
+      "idx": 7,
+      "price": 15.23,
+      "vol": 50
+    },
+    {
+      "side": "Bid",
+      "idx": 8,
+      "price": 15.22,
+      "vol": 22
+    },
+    {
+      "side": "Bid",
+      "idx": 9,
+      "price": 15.21,
+      "vol": 8
+    },
+    {
+      "side": "Bid",
+      "idx": 10,
+      "price": 15.2,
+      "vol": 348
+    },
+    {
+      "side": "Bid",
+      "idx": 11,
+      "price": 15.18,
+      "vol": 53
+    },
+    {
+      "side": "Bid",
+      "idx": 12,
+      "price": 15.17,
+      "vol": 27
+    },
+    {
+      "side": "Bid",
+      "idx": 13,
+      "price": 15.16,
+      "vol": 91
+    },
+    {
+      "side": "Bid",
+      "idx": 15,
+      "price": 15.14,
+      "vol": 11
+    },
+    {
+      "side": "Bid",
+      "idx": 16,
+      "price": 15.13,
+      "vol": 160
+    },
+    {
+      "side": "Bid",
+      "idx": 17,
+      "price": 15.12,
+      "vol": 39
+    },
+    {
+      "side": "Bid",
+      "idx": 18,
+      "price": 15.11,
+      "vol": 7
+    },
+    {
+      "side": "Bid",
+      "idx": 19,
+      "price": 15.1,
+      "vol": 205
+    },
+    {
+      "side": "Bid",
+      "idx": 20,
+      "price": 15.09,
+      "vol": 3
+    },
+    {
+      "side": "Bid",
+      "idx": 21,
+      "price": 15.08,
+      "vol": 59
+    },
+    {
+      "side": "Bid",
+      "idx": 22,
+      "price": 15.07,
+      "vol": 48
+    },
+    {
+      "side": "Bid",
+      "idx": 23,
+      "price": 15.06,
+      "vol": 89
+    },
+    {
+      "side": "Bid",
+      "idx": 24,
+      "price": 15.05,
+      "vol": 12
+    },
+    {
+      "side": "Bid",
+      "idx": 25,
+      "price": 15.04,
+      "vol": 13
+    },
+    {
+      "side": "Bid",
+      "idx": 26,
+      "price": 15.03,
+      "vol": 4
+    },
+    {
+      "side": "Bid",
+      "idx": 27,
+      "price": 15.02,
+      "vol": 20
+    },
+    {
+      "side": "Bid",
+      "idx": 28,
+      "price": 15.01,
+      "vol": 61
+    },
+    {
+      "side": "Bid",
+      "idx": 29,
+      "price": 15.0,
+      "vol": 724
+    },
+    {
+      "side": "Bid",
+      "idx": 30,
+      "price": 14.99,
+      "vol": 30
+    },
+    {
+      "side": "Bid",
+      "idx": 31,
+      "price": 14.98,
+      "vol": 79
+    },
+    {
+      "side": "Bid",
+      "idx": 32,
+      "price": 14.97,
+      "vol": 43
+    },
+    {
+      "side": "Bid",
+      "idx": 33,
+      "price": 14.96,
+      "vol": 24
+    },
+    {
+      "side": "Bid",
+      "idx": 34,
+      "price": 14.95,
+      "vol": 32
+    },
+    {
+      "side": "Bid",
+      "idx": 35,
+      "price": 14.94,
+      "vol": 36
+    },
+    {
+      "side": "Bid",
+      "idx": 41,
+      "price": 14.88,
+      "vol": 407
+    },
+    {
+      "side": "Bid",
+      "idx": 42,
+      "price": 14.87,
+      "vol": 19
+    },
+    {
+      "side": "Bid",
+      "idx": 43,
+      "price": 14.86,
+      "vol": 27
+    },
+    {
+      "side": "Bid",
+      "idx": 44,
+      "price": 14.85,
+      "vol": 200
+    },
+    {
+      "side": "Bid",
+      "idx": 45,
+      "price": 14.84,
+      "vol": 49
+    },
+    {
+      "side": "Bid",
+      "idx": 46,
+      "price": 14.83,
+      "vol": 89
+    },
+    {
+      "side": "Bid",
+      "idx": 47,
+      "price": 14.82,
+      "vol": 185
+    },
+    {
+      "side": "Bid",
+      "idx": 48,
+      "price": 14.81,
+      "vol": 246
+    },
+    {
+      "side": "Bid",
+      "idx": 49,
+      "price": 14.8,
+      "vol": 472
+    },
+    {
+      "side": "Bid",
+      "idx": 50,
+      "price": 14.79,
+      "vol": 49
+    },
+    {
+      "side": "Bid",
+      "idx": 51,
+      "price": 14.78,
+      "vol": 22
+    },
+    {
+      "side": "Bid",
+      "idx": 52,
+      "price": 14.77,
+      "vol": 89
+    },
+    {
+      "side": "Bid",
+      "idx": 53,
+      "price": 14.76,
+      "vol": 33
+    },
+    {
+      "side": "Bid",
+      "idx": 54,
+      "price": 14.75,
+      "vol": 102
+    },
+    {
+      "side": "Bid",
+      "idx": 55,
+      "price": 14.74,
+      "vol": 39
+    },
+    {
+      "side": "Bid",
+      "idx": 56,
+      "price": 14.73,
+      "vol": 6
+    },
+    {
+      "side": "Bid",
+      "idx": 57,
+      "price": 14.72,
+      "vol": 64
+    },
+    {
+      "side": "Bid",
+      "idx": 58,
+      "price": 14.71,
+      "vol": 110
+    },
+    {
+      "side": "Bid",
+      "idx": 59,
+      "price": 14.7,
+      "vol": 170
+    },
+    {
+      "side": "Bid",
+      "idx": 60,
+      "price": 14.69,
+      "vol": 7
+    },
+    {
+      "side": "Bid",
+      "idx": 71,
+      "price": 14.57,
+      "vol": 12
+    },
+    {
+      "side": "Bid",
+      "idx": 72,
+      "price": 14.56,
+      "vol": 52
+    },
+    {
+      "side": "Bid",
+      "idx": 74,
+      "price": 14.54,
+      "vol": 47
+    },
+    {
+      "side": "Bid",
+      "idx": 75,
+      "price": 14.53,
+      "vol": 102
+    },
+    {
+      "side": "Bid",
+      "idx": 76,
+      "price": 14.52,
+      "vol": 33
+    },
+    {
+      "side": "Bid",
+      "idx": 77,
+      "price": 14.51,
+      "vol": 75
+    },
+    {
+      "side": "Bid",
+      "idx": 78,
+      "price": 14.5,
+      "vol": 343
+    },
+    {
+      "side": "Bid",
+      "idx": 79,
+      "price": 14.48,
+      "vol": 1
+    },
+    {
+      "side": "Bid",
+      "idx": 84,
+      "price": 14.39,
+      "vol": 22
+    },
+    {
+      "side": "Bid",
+      "idx": 85,
+      "price": 14.38,
+      "vol": 36
+    },
+    {
+      "side": "Bid",
+      "idx": 86,
+      "price": 14.37,
+      "vol": 1
+    },
+    {
+      "side": "Bid",
+      "idx": 111,
+      "price": 14.03,
+      "vol": 1
+    },
+    {
+      "side": "Bid",
+      "idx": 115,
+      "price": 13.99,
+      "vol": 10
+    },
+    {
+      "side": "Bid",
+      "idx": 116,
+      "price": 13.98,
+      "vol": 5
+    },
+    {
+      "side": "Bid",
+      "idx": 117,
+      "price": 13.96,
+      "vol": 22
+    },
+    {
+      "side": "Bid",
+      "idx": 119,
+      "price": 13.88,
+      "vol": 31
+    },
+    {
+      "side": "Bid",
+      "idx": 120,
+      "price": 13.87,
+      "vol": 1
+    },
+    {
+      "side": "Bid",
+      "idx": 121,
+      "price": 13.82,
+      "vol": 11
+    },
+    {
+      "side": "Bid",
+      "idx": 122,
+      "price": 13.81,
+      "vol": 16
+    },
+    {
+      "side": "Bid",
+      "idx": 123,
+      "price": 13.8,
+      "vol": 15
+    },
+    {
+      "side": "Bid",
+      "idx": 124,
+      "price": 13.78,
+      "vol": 100
+    },
+    {
+      "side": "Bid",
+      "idx": 126,
+      "price": 13.75,
+      "vol": 7
+    },
+    {
+      "side": "Bid",
+      "idx": 128,
+      "price": 13.69,
+      "vol": 5
+    },
+    {
+      "side": "Bid",
+      "idx": 129,
+      "price": 13.68,
+      "vol": 2
+    },
+    {
+      "side": "Bid",
+      "idx": 130,
+      "price": 13.67,
+      "vol": 50
+    },
+    {
+      "side": "Bid",
+      "idx": 131,
+      "price": 13.66,
+      "vol": 20
+    }
+  ],
+  "total_ask": 30903,
+  "total_bid": 6031,
+  "ratio": -67.34
+}

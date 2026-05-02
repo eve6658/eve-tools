@@ -1,0 +1,37 @@
+{
+  "id": "eve-cache",
+  "name": "Eve Cache Optimizer",
+  "description": "L1-L3 cache optimization: canonicalization, prompt cache, tool cache, context retrieval",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable cache optimization"
+      },
+      "promptCacheTTL": {
+        "type": "number",
+        "default": 300,
+        "description": "L2 prompt cache TTL in seconds"
+      },
+      "toolCacheTTL": {
+        "type": "number",
+        "default": 300,
+        "description": "Tool result cache TTL in seconds"
+      },
+      "contextTopK": {
+        "type": "number",
+        "default": 3,
+        "description": "Number of context chunks to retrieve"
+      },
+      "logLevel": {
+        "type": "string",
+        "enum": ["off", "info", "debug"],
+        "default": "info"
+      }
+    }
+  }
+}

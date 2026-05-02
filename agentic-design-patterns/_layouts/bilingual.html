@@ -1,0 +1,58 @@
+---
+layout: default
+---
+<style>
+/* 双语内容样式 */
+.bilingual-paragraph {
+    padding: 0.5rem 0;
+    margin: 0;
+}
+
+.bilingual-paragraph.english {
+    border-left: 3px solid #0366d6;
+    padding-left: 1rem;
+    margin-bottom: 1rem;
+}
+
+.bilingual-paragraph.chinese {
+    border-left: 3px solid #159957;
+    padding-left: 1rem;
+    margin-bottom: 1.5rem;
+    color: #57606a;
+}
+
+body.dark-mode .bilingual-paragraph.chinese {
+    color: #8b949e;
+}
+
+/* 代码块样式 - 不分割，保持完整 */
+.bilingual-paragraph pre {
+    margin: 1rem 0;
+}
+
+.bilingual-section {
+    margin-bottom: 2rem;
+}
+
+/* 语言标签样式 */
+.lang-label {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.5rem;
+    border-radius: 3px;
+    margin-bottom: 0.25rem;
+}
+
+.lang-label.en {
+    background-color: #0366d6;
+    color: #fff;
+}
+
+.lang-label.zh {
+    background-color: #159957;
+    color: #fff;
+}
+</style>
+
+{{ content }}

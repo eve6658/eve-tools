@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "chrome": {
+      "command": "chrome-mcp --port 9222"
+    }
+  },
+  "imports": []
+}

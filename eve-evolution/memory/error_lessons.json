@@ -1,0 +1,35 @@
+{
+  "a4a706e65f6a": {
+    "timestamp": "2026-04-02T19:04:15.705607",
+    "tool_name": "exec",
+    "command": "rm -rf /important",
+    "error_type": "permission",
+    "error_message": "PermissionError: Permission denied",
+    "lesson": "不要执行 rm -rf / 等危险命令，先用 trash 或 --dry-run",
+    "confidence": 1.0,
+    "times_applied": 1,
+    "avoided": 0
+  },
+  "7ef10c6fa5af": {
+    "timestamp": "2026-04-02T19:04:15.706223",
+    "tool_name": "exec",
+    "command": "sudo apt install xxx",
+    "error_type": "runtime",
+    "error_message": "Error: lock file exists",
+    "lesson": "检查是否有其他 apt 进程在运行，先 kill 或等它完成",
+    "confidence": 1.0,
+    "times_applied": 1,
+    "avoided": 0
+  },
+  "03e73e6ab5fc": {
+    "timestamp": "2026-04-02T19:04:15.707244",
+    "tool_name": "shell",
+    "command": "pip install xxx",
+    "error_type": "permission",
+    "error_message": "Error: permission denied on /usr/lib",
+    "lesson": "用 pip install --user 或先激活 venv",
+    "confidence": 1.0,
+    "times_applied": 1,
+    "avoided": 0
+  }
+}

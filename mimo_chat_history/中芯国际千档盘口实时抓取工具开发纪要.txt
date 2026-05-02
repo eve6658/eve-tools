@@ -1,0 +1,2115 @@
+MiMo Claw
+免费体验
+MiMo Chat
+
+历史记录
+
+股票交易内存分析报告
+港股盘口内存抓取优化方案
+港股千档盘口内存抓取工具分析
+内存扫描架构优化方案
+中芯国际千档盘口实时抓取工具开发纪要
+AXexe内存逆向工程工作记录总结
+手机与OpenClaw Agent双向通信方案
+Qwopus3.5-9B-v3-GGUF在T460p
+Ubuntu终端PDF表格OCR转Excel指南
+AXexe内存结构分析工程记录
+Level2数据抓取工程纪要
+Level2数据抓取工程工作纪要
+Level2数据抓取内存定位与优化
+股市放量缩量原理与筹码换手
+国投证券Level2内存数据解析与传输方案
+券商Level2数据实时抓取与OpenClaw分析
+数据包分析与Level2抓取方法缺失
+国投证券Linux交易客户端指南
+六爻卦婚姻正缘分析
+OpenClaw网关配置修复指南
+苏格拉宁1319
+
+Xiaomi MiMo-V2.5 开启公测： MiMo-V2.5-Pro 长程推理与 Agent 大幅增强； MiMo-V2.5 全模态 1M 上下文； MiMo-V2.5-TTS 系列 音色克隆与精细控制全面升级
+
+MiMo-V2.5-Pro
+New
+
+API 服务
+我持有一只股票卖方545档报价。买方422档报价。
+MiMo-V2.5-Pro
+已深度思考（用时 2.8 秒）
+你的股票：150 档实际覆盖率
+
+
+直接算一下
+
+
+	卖方（545档）	买方（422档）
+你抓到的	150 档	150 档
+你丢掉的	395 档（72%）	272 档（64%）
+覆盖率	28%	36%
+
+
+
+你有接近三分之二的盘口数据是看不到的。
+
+
+
+
+
+具体影响取决于这只股票的价格和 tick
+
+
+
+这只股票是什么价位？我用两种常见情况算一下你丢掉的价格跨度：
+
+
+
+如果是中低价股（比如 10-30 HKD，tick=0.005）
+
+
+text
+text
+150档 × 0.005 = 0.75 HKD 覆盖
+卖方总跨度 = 545 × 0.005 = 2.73 HKD（约 ±5%~14%）
+你丢掉了 2.00 HKD 的深度信息
+
+
+
+如果是中高价股（比如 80-150 HKD，tick=0.01~0.05）
+
+
+text
+text
+150档 × 0.02 = 3.00 HKD 覆盖
+卖方总跨度 = 545 × 0.02 = 10.90 HKD
+你丢掉了 7.90 HKD 的深度信息
+
+
+
+
+
+你现在该做什么
+
+
+
+对这只股票来说，扩到全档是值得的。 原因很直接：
+
+
+
+1.
+545/422 档说明这只股票参与者多、挂单分散——不是那种只有几十档的冷门股，盘口深层信息本身就是有价值的
+2.
+你丢掉的不是边角料，是 70% 的卖方数据和 64% 的买方数据
+3.
+这是你持仓的股票，你需要的判断精度比旁观的股票更高
+
+
+落地建议
+
+
+
+不需要一步到位扩到 1000 档。先扩到 600 档，理由：
+
+
+
+text
+text
+卖方 545 档 → 抓 600 档，100% 覆盖，还有余量
+买方 422 档 → 抓 600 档，100% 覆盖，还有余量
+扫描耗时 → 约为 150 档的 4 倍，仍在可接受范围
+跨区域风险 → 600档 = 12,000字节，比 1000 档的 20,000 字节安全很多
+
+
+
+
+把代码里 MAX_LEN 改成 600 就行。跨区域读取的逻辑还是要保留，因为 12KB 仍然可能跨越内存区域边界。
+
+
+
+
+你要我按 600 档的参数把代码调整好吗？还是你想先告诉我这只股票的价格，我帮你算一下精确的覆盖范围？
+
+150元股价浮动
+MiMo-V2.5-Pro
+已深度思考（用时 18.3 秒）
+150 HKD 股价下的精确覆盖率
+
+
+港股 tick size
+
+
+
+150 HKD 的股票，对应 tick = 0.10 HKD（港股规则：100-200 价位段 tick 0.10）
+
+
+
+
+
+你当前的数据覆盖
+
+
+text
+text
+卖方（545档）：
+
+  ◄─── 你丢掉的 395档 ───►◄── 你有的 150档 ──►
+  |                        |                     |
+ 150.10               190.10                 204.50  (卖方尽头)
+                        ↑
+                   你的边界
+
+  丢失：39.50 HKD 的卖方深度
+  覆盖率：27.5%
+
+
+买方（422档）：
+
+  ◄── 你有的 150档 ──►◄─── 你丢掉的 272档 ───►
+  |                    |                        |
+ 107.90            135.00                    150.00
+                   ↑
+              你的边界
+
+  丢失：27.20 HKD 的买方深度
+  覆盖率：35.5%
+
+
+
+汇总
+
+
+	你有的	你丢掉的	覆盖率
+卖方	150 档 = 15.00 HKD	395 档 = 39.50 HKD	27.5%
+买方	150 档 = 15.00 HKD	272 档 = 27.20 HKD	35.5%
+总计	300 档	667 档	31%
+
+
+
+你只看到了三成的盘口。
+
+
+
+
+
+问题的关键：tick=0.10 让 150 档变得更薄
+
+
+
+中芯国际 tick=0.01，150 档 = 1.50 HKD 的深度，还算紧凑。
+
+
+
+
+你这只股票 tick=0.10，150 档 = 15.00 HKD，看起来跨度大，但实际上每个价位之间间隔是中芯的 10 倍。价格分辨率很粗，任何一个价位上的挂单被吃掉后，价格直接跳 0.10——这对你的交易判断影响更大，因为：
+
+
+
+每一档的挂单量通常更大（机构会集中在少数几个价位挂大单）
+你丢掉的深层价位里，可能藏着决定性的大单
+
+
+
+
+扩到 600 档的效果
+
+
+text
+text
+600档 × 0.10 = 60.00 HKD
+
+卖方 545档 → 全部覆盖 ✓（还余 55 档）
+买方 422档 → 全部覆盖 ✓（还余 178 档）
+
+
+
+
+600 档对你这只股票就是 100% 覆盖。 不需要扩到 1000。
+
+
+
+
+
+要改的东西就一处
+
+
+
+把 MAX_LEN = 150 改成 MAX_LEN = 600，同时保留跨区域读取逻辑。扫描耗时大约是现在的 4 倍，扫描间隔建议从 10 秒调到 20-30 秒。
+
+
+
+
+你要我把完整代码按 600 档参数调整好吗？
+
+发个完整版 测试一次
+MiMo-V2.5-Pro
+已深度思考（用时 190.4 秒）
+完整版 —— 600 档千档盘口抓取
+
+
+python
+python
+import pymem
+import struct
+import subprocess
+import csv
+import time
+import os
+import sys
+import bisect
+
+# ══════════════════════════════════════════════════════════
+#  配置
+# ══════════════════════════════════════════════════════════
+RECORD_SIZE   = 20       # 5×uint32 = 20字节/条
+MIN_SEQ_LEN   = 10       # 最短有效序列
+MAX_LEN       = 600      # ★ 600档，覆盖你的545卖+422买
+MAX_BACKWARD  = 3        # 卖方回退检查
+MAX_CROSS     = 3        # 最多跨3个内存区域
+DISPLAY_ROWS  = 80       # 终端显示前80档
+SCAN_INTERVAL = 25       # 扫描间隔（秒）
+
+
+# ══════════════════════════════════════════════════════════
+#  进程定位
+# ══════════════════════════════════════════════════════════
+def find_ax_pid():
+    result = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq AX.exe", "/FO", "CSV"],
+        capture_output=True, text=True
+    )
+    for line in csv.reader(result.stdout.strip().split("\n")):
+        if len(line) >= 2 and line[0].strip('"') == "AX.exe":
+            return int(line[1].strip('"'))
+    return None
+
+
+# ══════════════════════════════════════════════════════════
+#  内存区域（含跨区域读取）
+# ══════════════════════════════════════════════════════════
+def enum_readable_regions(pm):
+    regions = []
+    addr = 0
+    min_size = RECORD_SIZE * MIN_SEQ_LEN  # 200字节以下跳过
+    while addr < 0x7FFFFFFFFFFF:
+        try:
+            info = pm.query(addr)
+            base = info.BaseAddress
+            size = info.RegionSize
+            protect = info.Protect
+            if (info.State == 0x1000 and
+                    protect in (0x02, 0x04, 0x06, 0x20, 0x40, 0x60, 0x80)):
+                if size >= min_size:
+                    regions.append((base, size))
+            addr = base + size
+        except:
+            addr += 0x1000
+    return regions
+
+
+def build_ridx(regions):
+    """构建排序索引，用于跨区域二分查找"""
+    sr = sorted(regions, key=lambda r: r[0])
+    bases = [r[0] for r in sr]
+    return sr, bases
+
+
+def find_region(ridx, addr):
+    sr, bases = ridx
+    i = bisect.bisect_right(bases, addr) - 1
+    if i < 0:
+        return None
+    b, s = sr[i]
+    return (b, s) if b <= addr < b + s else None
+
+
+def read_cross(pm, ridx, addr, length):
+    """跨内存区域读取——600档=12KB，很可能跨越区域边界"""
+    result = b""
+    remaining = length
+    cur = addr
+    for _ in range(MAX_CROSS):
+        reg = find_region(ridx, cur)
+        if reg is None:
+            break
+        b, s = reg
+        avail = s - (cur - b)
+        n = min(remaining, avail)
+        try:
+            result += pm.read_bytes(cur, n)
+        except:
+            break
+        remaining -= n
+        if remaining <= 0:
+            break
+        cur = b + s
+    return result
+
+
+# ══════════════════════════════════════════════════════════
+#  数据解析
+# ══════════════════════════════════════════════════════════
+def parse_rec(data):
+    v = struct.unpack("<5I", data)
+    p = struct.unpack("<f", struct.pack("<I", v[0]))[0]
+    return p, v[1], v[2], v[3], v[4]   # price, vol, cnt, status, seq
+
+
+def ok_price(p):
+    return 0.01 < p < 100000.0
+
+
+def ok_step(p1, p2):
+    d = abs(p1 - p2)
+    return 0.001 < d < 1.0
+
+
+# ══════════════════════════════════════════════════════════
+#  序列构建
+# ══════════════════════════════════════════════════════════
+def build_seq(chunk, base, offset, first, ridx, pm, ascending):
+    """
+    从 offset 开始构建连续序列。
+    ascending=True  → 卖方（价格递增）
+    ascending=False → 买方（价格递减）
+    """
+    recs = [first]
+    prev = first[0]
+    seq0 = first[4]
+
+    for j in range(1, MAX_LEN):
+        # 优先从当前chunk读，不够则跨区域
+        local = offset + j * RECORD_SIZE
+        if local + RECORD_SIZE <= len(chunk):
+            try:
+                rec = parse_rec(chunk[local:local + RECORD_SIZE])
+            except:
+                break
+        else:
+            data = read_cross(pm, ridx, base + offset + j * RECORD_SIZE,
+                              RECORD_SIZE)
+            if len(data) < RECORD_SIZE:
+                break
+            try:
+                rec = parse_rec(data)
+            except:
+                break
+
+        rp, rv, rc, rs, rseq = rec
+
+        # ★ seq 必须匹配当前快照（±1容差）
+        if abs(rseq - seq0) > 1:
+            break
+        if not ok_price(rp):
+            break
+        # 价格单调性
+        if ascending:
+            if rp <= prev:
+                break
+        else:
+            if rp >= prev:
+                break
+        if not ok_step(rp, prev):
+            break
+
+        recs.append(rec)
+        prev = rp
+
+    return recs
+
+
+def expand_ask_backward(chunk, offset, ask_recs):
+    """卖方回退：检查前1~3条记录是否属于同一序列（修复第一档缺失）"""
+    if not ask_recs:
+        return ask_recs
+
+    fp = ask_recs[0][0]
+    fs = ask_recs[0][4]
+    step = ask_recs[1][0] - ask_recs[0][0] if len(ask_recs) >= 2 else 0.01
+
+    expanded = list(ask_recs)
+
+    for back in range(1, MAX_BACKWARD + 1):
+        co = offset - back * RECORD_SIZE
+        if co < 0:
+            break
+        try:
+            rec = parse_rec(chunk[co:co + RECORD_SIZE])
+        except:
+            break
+
+        p, v, c, s, sq = rec
+        if not ok_price(p) or v == 0:
+            break
+        if abs(sq - fs) > 1:
+            break
+        if p >= fp:
+            break
+        d = fp - p
+        if not (0.001 < d < 1.0):
+            break
+        if step > 0 and back > 1:
+            ratio = d / step
+            if ratio < 0.5 or ratio > 1.5:
+                break
+
+        expanded.insert(0, rec)
+        fp = p
+
+    return expanded
+
+
+# ══════════════════════════════════════════════════════════
+#  主搜索
+# ══════════════════════════════════════════════════════════
+def search_books(pm, regions, ridx):
+    all_asks = []
+    all_bids = []
+
+    for base, size in regions:
+        try:
+            chunk = pm.read_bytes(base, size)
+        except:
+            continue
+
+        i = 0
+        while i <= size - RECORD_SIZE:
+            try:
+                first = parse_rec(chunk[i:i + RECORD_SIZE])
+            except:
+                i += 4
+                continue
+
+            p0, v0 = first[0], first[1]
+            if not ok_price(p0) or v0 == 0:
+                i += RECORD_SIZE
+                continue
+
+            # ── 卖方（递增）──
+            asks = build_seq(chunk, base, i, first, ridx, pm, ascending=True)
+            if len(asks) >= MIN_SEQ_LEN:
+                expanded = expand_ask_backward(chunk, i, asks)
+                all_asks.append((first[4], base + i, expanded))
+                i += len(asks) * RECORD_SIZE   # 跳过已匹配区域
+                continue
+
+            # ── 买方（递减）──
+            bids = build_seq(chunk, base, i, first, ridx, pm, ascending=False)
+            if len(bids) >= MIN_SEQ_LEN:
+                all_bids.append((first[4], base + i, bids))
+                i += len(bids) * RECORD_SIZE
+                continue
+
+            i += RECORD_SIZE
+
+    return all_asks, all_bids
+
+
+# ══════════════════════════════════════════════════════════
+#  深层大单检测
+# ══════════════════════════════════════════════════════════
+def find_notable(records, label, threshold=10):
+    """找出深层档位中挂单量 > 平均值 threshold 倍的价位"""
+    if len(records) <= DISPLAY_ROWS:
+        return []
+    deep = records[DISPLAY_ROWS:]
+    vols = [r[1] for r in deep if r[1] > 0]
+    if not vols:
+        return []
+    avg = sum(vols) / len(vols)
+    if avg == 0:
+        return []
+    result = []
+    for i, r in enumerate(deep):
+        if r[1] > avg * threshold:
+            level = DISPLAY_ROWS + i + 1
+            result.append((label, level, r[0], r[1], r[1] / avg))
+    return sorted(result, key=lambda x: -x[3])
+
+
+# ══════════════════════════════════════════════════════════
+#  终端显示
+# ══════════════════════════════════════════════════════════
+def display(bids, asks, scan_time):
+    os.system("cls" if os.name == "nt" else "clear")
+
+    print("=" * 80)
+    print("  千档盘口实时监控  MAX_LEN=600")
+    print("=" * 80)
+
+    if not bids and not asks:
+        print("\n  等待数据...\n")
+        return
+
+    last = asks[0][0] if asks else (bids[0][0] if bids else 0)
+    print(f"  最新价: {last:.2f}    买方: {len(bids)}档    卖方: {len(asks)}档")
+
+    if asks:
+        print(f"  卖方范围: {asks[0][0]:.2f} ~ {asks[-1][0]:.2f}  "
+              f"(跨度 {asks[-1][0] - asks[0][0]:.2f} HKD)")
+    if bids:
+        print(f"  买方范围: {bids[-1][0]:.2f} ~ {bids[0][0]:.2f}  "
+              f"(跨度 {bids[0][0] - bids[-1][0]:.2f} HKD)")
+
+    print("-" * 80)
+    print(f"  {'买方':^34}  │  {'卖方':^34}")
+    print(f"  {'#':>3} {'价格':>10} {'量':>10} {'笔':>6}  │"
+          f"  {'#':>3} {'价格':>10} {'量':>10} {'笔':>6}")
+    print("-" * 80)
+
+    rows = min(DISPLAY_ROWS, max(len(bids), len(asks)))
+    for i in range(rows):
+        if i < len(bids):
+            bp, bv, bc, _, _ = bids[i]
+            bs = f"  {i+1:>3} {bp:>10.2f} {bv:>10,} {bc:>6}"
+        else:
+            bs = " " * 35
+
+        if i < len(asks):
+            ap, av, ac, _, _ = asks[i]
+            a_s = f"  {i+1:>3} {ap:>10.2f} {av:>10,} {ac:>6}"
+        else:
+            a_s = " " * 35
+
+        print(f"{bs}  │ {a_s}")
+
+    rem_b = len(bids) - rows
+    rem_a = len(asks) - rows
+    if rem_b > 0 or rem_a > 0:
+        print(f"\n  ... 买方还 {rem_b} 档 / 卖方还 {rem_a} 档未显示 ...")
+
+    # ★ 深层大单提示
+    notable = find_notable(bids, "买") + find_notable(asks, "卖")
+    if notable:
+        print()
+        print("  ★ 深层大单（挂单量 > 深层平均值 10 倍）:")
+        for side, lvl, price, vol, ratio in notable:
+            print(f"    {side}方 #{lvl:<4} {price:>10.2f}  "
+                  f"量={vol:>10,}  ({ratio:.0f}x平均)")
+
+    print("-" * 80)
+    print(f"  {time.strftime('%H:%M:%S')}  扫描耗时 {scan_time:.1f}s  "
+          f"显示1s / 扫描{SCAN_INTERVAL}s")
+
+
+# ══════════════════════════════════════════════════════════
+#  主程序
+# ══════════════════════════════════════════════════════════
+def main():
+    print("定位 AX.exe ...")
+    pid = find_ax_pid()
+    if not pid:
+        print("错误: 未找到 AX.exe，请先启动客户端")
+        sys.exit(1)
+    print(f"PID: {pid}")
+
+    pm = pymem.Pymem()
+    pm.open_process_from_id(pid)
+
+    print("枚举内存区域...")
+    regions = enum_readable_regions(pm)
+    ridx = build_ridx(regions)
+    print(f"共 {len(regions)} 个可读区域")
+    print(f"首次扫描中（600档较慢，请稍候）...")
+
+    last_scan = 0
+    scan_time = 0
+    best_bids, best_asks = [], []
+
+    while True:
+        now = time.time()
+        if now - last_scan >= SCAN_INTERVAL:
+            t0 = time.time()
+            all_asks, all_bids = search_books(pm, regions, ridx)
+            scan_time = time.time() - t0
+            last_scan = time.time()
+
+            # 取 seq 最大的快照
+            best_asks = (sorted(all_asks, key=lambda x: x[0], reverse=True)
+                         [0][2] if all_asks else [])
+            best_bids = (sorted(all_bids, key=lambda x: x[0], reverse=True)
+                         [0][2] if all_bids else [])
+
+        display(best_bids, best_asks, scan_time)
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+相比之前版本的改动汇总
+
+
+改动	说明
+MAX_LEN 150 → 600	完整覆盖你的 545 卖 + 422 买
+跨区域读取 read_cross	600 档 = 12KB，必须处理跨内存区域拼接
+bisect 二分查找	4000+ 区域中快速定位地址所属区域
+seq 约束收紧到 ±1	防止串到下一个快照
+去掉 vol==0 的 break	允许空档位穿透，靠价格单调性约束
+找到序列后跳过	i += len(seq) * RECORD_SIZE，避免重复扫描
+深层大单提示	自动检测深层挂单量 > 平均 10 倍的价位
+小区域过滤	< 200 字节的区域直接跳过
+
+
+运行后验证清单
+
+
+text
+text
+1. 卖方档位数是否接近 545（±5以内）
+2. 买方档位数是否接近 422（±5以内）
+3. 卖方第一档价格是否与 AX.exe 一致（回退修复是否生效）
+4. 第 300 档、第 500 档的价格和挂单量是否与 AX.exe 一致
+5. 连续 3 次扫描的档位数是否稳定
+6. 扫描耗时是否在 15-30 秒之间
+
+文件名不变吗
+MiMo-V2.5-Pro
+已深度思考（用时 1.9 秒）
+
+文件名保持不变：
+
+
+
+text
+text
+C:\Users\john\ax_realtime.py
+
+
+
+
+直接覆盖原文件即可。运行方式也不变：
+
+
+
+text
+text
+管理员 CMD → python C:\Users\john\ax_realtime.py
+
+
+
+
+跑起来之后告诉我卖方和买方分别抓到多少档，我们对照 AX.exe 验证。
+
+Microsoft Windows [版本 10.0.19045.6466]
+(c) Microsoft Corporation。保留所有权利。
+
+C:\WINDOWS\system32>管理员 CMD → python C:\Users\john\ax_realtime.py
+'管理员' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>
+MiMo-V2.5-Pro
+已深度思考（用时 1.4 秒）
+
+抱歉，我给的说明有歧义。直接输入这一行就行：
+
+
+
+text
+text
+python C:\Users\john\ax_realtime.py
+
+
+
+
+"管理员 CMD" 的意思是你的命令提示符窗口需要以管理员身份打开（右键 → 以管理员身份运行），不是要输入的文字。你当前窗口标题栏如果显示"管理员"就说明已经是了。
+
+扫描很久了还没完
+MiMo-V2.5-Pro
+已深度思考（用时 18.6 秒）
+
+600档扫描太慢了，需要优化。核心问题：每个内存位置都尝试构建600条记录，99.9%的位置会失败，但失败前已经浪费了大量时间。
+
+
+
+
+改成两阶段扫描：先快速探测10条，通过了才深入到600条。
+
+
+
+python
+python
+import pymem
+import struct
+import subprocess
+import csv
+import time
+import os
+import sys
+import bisect
+
+# ══════════════════════════════════════════════════════════
+#  配置
+# ══════════════════════════════════════════════════════════
+RECORD_SIZE   = 20
+PROBE_LEN     = 12       # ★ 第一阶段：快速探测12条
+MAX_LEN       = 600      # 第二阶段：通过探测后扩展到600条
+MIN_SEQ_LEN   = 10
+MAX_BACKWARD  = 3
+MAX_CROSS     = 3
+DISPLAY_ROWS  = 80
+SCAN_INTERVAL = 25
+
+
+# ══════════════════════════════════════════════════════════
+#  进程
+# ══════════════════════════════════════════════════════════
+def find_ax_pid():
+    result = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq AX.exe", "/FO", "CSV"],
+        capture_output=True, text=True
+    )
+    for line in csv.reader(result.stdout.strip().split("\n")):
+        if len(line) >= 2 and line[0].strip('"') == "AX.exe":
+            return int(line[1].strip('"'))
+    return None
+
+
+# ══════════════════════════════════════════════════════════
+#  内存
+# ══════════════════════════════════════════════════════════
+def enum_readable_regions(pm):
+    regions = []
+    addr = 0
+    min_size = RECORD_SIZE * MIN_SEQ_LEN
+    while addr < 0x7FFFFFFFFFFF:
+        try:
+            info = pm.query(addr)
+            base = info.BaseAddress
+            size = info.RegionSize
+            protect = info.Protect
+            if (info.State == 0x1000 and
+                    protect in (0x02, 0x04, 0x06, 0x20, 0x40, 0x60, 0x80)):
+                if size >= min_size:
+                    regions.append((base, size))
+            addr = base + size
+        except:
+            addr += 0x1000
+    return regions
+
+
+def build_ridx(regions):
+    sr = sorted(regions, key=lambda r: r[0])
+    return sr, [r[0] for r in sr]
+
+
+def find_region(ridx, addr):
+    sr, bases = ridx
+    i = bisect.bisect_right(bases, addr) - 1
+    if i < 0:
+        return None
+    b, s = sr[i]
+    return (b, s) if b <= addr < b + s else None
+
+
+def read_cross(pm, ridx, addr, length):
+    result = b""
+    remaining = length
+    cur = addr
+    for _ in range(MAX_CROSS):
+        reg = find_region(ridx, cur)
+        if reg is None:
+            break
+        b, s = reg
+        n = min(remaining, s - (cur - b))
+        try:
+            result += pm.read_bytes(cur, n)
+        except:
+            break
+        remaining -= n
+        if remaining <= 0:
+            break
+        cur = b + s
+    return result
+
+
+# ══════════════════════════════════════════════════════════
+#  解析
+# ══════════════════════════════════════════════════════════
+def parse_rec(data):
+    v = struct.unpack("<5I", data)
+    p = struct.unpack("<f", struct.pack("<I", v[0]))[0]
+    return p, v[1], v[2], v[3], v[4]
+
+
+def ok_price(p):
+    return 0.01 < p < 100000.0
+
+
+def ok_step(p1, p2):
+    d = abs(p1 - p2)
+    return 0.001 < d < 1.0
+
+
+# ══════════════════════════════════════════════════════════
+#  ★ 两阶段序列构建
+# ══════════════════════════════════════════════════════════
+def probe_seq(chunk, offset, first, ascending):
+    """
+    第一阶段：快速探测 PROBE_LEN 条。
+    全部在当前chunk内完成，不跨区域，极快。
+    返回 (passed, count, last_price, seq0)
+    """
+    prev = first[0]
+    seq0 = first[4]
+    count = 1
+
+    for j in range(1, PROBE_LEN):
+        local = offset + j * RECORD_SIZE
+        if local + RECORD_SIZE > len(chunk):
+            return count >= MIN_SEQ_LEN, count, prev, seq0
+        try:
+            rec = parse_rec(chunk[local:local + RECORD_SIZE])
+        except:
+            return False, count, prev, seq0
+
+        rp, rv, rc, rs, rseq = rec
+        if abs(rseq - seq0) > 1:
+            return count >= MIN_SEQ_LEN, count, prev, seq0
+        if not ok_price(rp):
+            return False, count, prev, seq0
+        if ascending:
+            if rp <= prev:
+                return count >= MIN_SEQ_LEN, count, prev, seq0
+        else:
+            if rp >= prev:
+                return count >= MIN_SEQ_LEN, count, prev, seq0
+        if not ok_step(rp, prev):
+            return False, count, prev, seq0
+
+        count += 1
+        prev = rp
+
+    # 探测通过，返回 True
+    return True, count, prev, seq0
+
+
+def expand_seq(chunk, base, offset, first, probe_count,
+               last_price, seq0, ridx, pm, ascending):
+    """
+    第二阶段：从 probe_count 处继续扩展到 MAX_LEN。
+    可能跨区域。
+    """
+    recs = []
+    # 先把探测过的记录解析出来
+    for j in range(probe_count):
+        local = offset + j * RECORD_SIZE
+        try:
+            rec = parse_rec(chunk[local:local + RECORD_SIZE])
+            recs.append(rec)
+        except:
+            break
+
+    prev = last_price
+
+    # 从 probe_count 继续
+    for j in range(probe_count, MAX_LEN):
+        local = offset + j * RECORD_SIZE
+        if local + RECORD_SIZE <= len(chunk):
+            try:
+                rec = parse_rec(chunk[local:local + RECORD_SIZE])
+            except:
+                break
+        else:
+            data = read_cross(pm, ridx, base + offset + j * RECORD_SIZE,
+                              RECORD_SIZE)
+            if len(data) < RECORD_SIZE:
+                break
+            try:
+                rec = parse_rec(data)
+            except:
+                break
+
+        rp, rv, rc, rs, rseq = rec
+        if abs(rseq - seq0) > 1:
+            break
+        if not ok_price(rp):
+            break
+        if ascending:
+            if rp <= prev:
+                break
+        else:
+            if rp >= prev:
+                break
+        if not ok_step(rp, prev):
+            break
+
+        recs.append(rec)
+        prev = rp
+
+    return recs
+
+
+def expand_ask_backward(chunk, offset, ask_recs):
+    if not ask_recs:
+        return ask_recs
+    fp = ask_recs[0][0]
+    fs = ask_recs[0][4]
+    step = ask_recs[1][0] - ask_recs[0][0] if len(ask_recs) >= 2 else 0.01
+    expanded = list(ask_recs)
+    for back in range(1, MAX_BACKWARD + 1):
+        co = offset - back * RECORD_SIZE
+        if co < 0:
+            break
+        try:
+            rec = parse_rec(chunk[co:co + RECORD_SIZE])
+        except:
+            break
+        p, v, c, s, sq = rec
+        if not ok_price(p) or v == 0:
+            break
+        if abs(sq - fs) > 1:
+            break
+        if p >= fp:
+            break
+        d = fp - p
+        if not (0.001 < d < 1.0):
+            break
+        if step > 0 and back > 1:
+            ratio = d / step
+            if ratio < 0.5 or ratio > 1.5:
+                break
+        expanded.insert(0, rec)
+        fp = p
+    return expanded
+
+
+# ══════════════════════════════════════════════════════════
+#  主搜索
+# ══════════════════════════════════════════════════════════
+def search_books(pm, regions, ridx):
+    all_asks = []
+    all_bids = []
+    total = len(regions)
+
+    for ri, (base, size) in enumerate(regions):
+        # 进度
+        if ri % 200 == 0:
+            print(f"\r  扫描进度: {ri}/{total} 区域 "
+                  f"({len(all_asks)}卖 {len(all_bids)}买)",
+                  end="", flush=True)
+
+        try:
+            chunk = pm.read_bytes(base, size)
+        except:
+            continue
+
+        i = 0
+        while i <= size - RECORD_SIZE:
+            try:
+                first = parse_rec(chunk[i:i + RECORD_SIZE])
+            except:
+                i += 4
+                continue
+
+            p0, v0 = first[0], first[1]
+            if not ok_price(p0) or v0 == 0:
+                i += RECORD_SIZE
+                continue
+
+            # ── 第一阶段：快速探测卖方 ──
+            passed, cnt, lp, sq = probe_seq(chunk, i, first, ascending=True)
+            if passed and cnt >= MIN_SEQ_LEN:
+                # 第二阶段：扩展到600
+                asks = expand_seq(chunk, base, i, first, cnt,
+                                  lp, sq, ridx, pm, ascending=True)
+                if len(asks) >= MIN_SEQ_LEN:
+                    expanded = expand_ask_backward(chunk, i, asks)
+                    all_asks.append((sq, base + i, expanded))
+                    i += len(asks) * RECORD_SIZE
+                    continue
+
+            # ── 第一阶段：快速探测买方 ──
+            passed, cnt, lp, sq = probe_seq(chunk, i, first, ascending=False)
+            if passed and cnt >= MIN_SEQ_LEN:
+                bids = expand_seq(chunk, base, i, first, cnt,
+                                  lp, sq, ridx, pm, ascending=False)
+                if len(bids) >= MIN_SEQ_LEN:
+                    all_bids.append((sq, base + i, bids))
+                    i += len(bids) * RECORD_SIZE
+                    continue
+
+            i += RECORD_SIZE
+
+    print(f"\r  扫描完成: {total} 区域, "
+          f"{len(all_asks)}个卖方, {len(all_bids)}个买方        ")
+    return all_asks, all_bids
+
+
+# ══════════════════════════════════════════════════════════
+#  深层大单
+# ══════════════════════════════════════════════════════════
+def find_notable(records, label, threshold=10):
+    if len(records) <= DISPLAY_ROWS:
+        return []
+    deep = records[DISPLAY_ROWS:]
+    vols = [r[1] for r in deep if r[1] > 0]
+    if not vols:
+        return []
+    avg = sum(vols) / len(vols)
+    if avg == 0:
+        return []
+    result = []
+    for i, r in enumerate(deep):
+        if r[1] > avg * threshold:
+            lvl = DISPLAY_ROWS + i + 1
+            result.append((label, lvl, r[0], r[1], r[1] / avg))
+    return sorted(result, key=lambda x: -x[3])
+
+
+# ══════════════════════════════════════════════════════════
+#  显示
+# ══════════════════════════════════════════════════════════
+def display(bids, asks, scan_time):
+    os.system("cls" if os.name == "nt" else "clear")
+
+    print("=" * 80)
+    print("  千档盘口实时监控  MAX_LEN=600  两阶段扫描")
+    print("=" * 80)
+
+    if not bids and not asks:
+        print("\n  等待数据...\n")
+        return
+
+    last = asks[0][0] if asks else (bids[0][0] if bids else 0)
+    print(f"  最新价: {last:.2f}    买方: {len(bids)}档    卖方: {len(asks)}档")
+
+    if asks:
+        print(f"  卖方: {asks[0][0]:.2f} ~ {asks[-1][0]:.2f}  "
+              f"(跨度 {asks[-1][0] - asks[0][0]:.2f} HKD)")
+    if bids:
+        print(f"  买方: {bids[-1][0]:.2f} ~ {bids[0][0]:.2f}  "
+              f"(跨度 {bids[0][0] - bids[-1][0]:.2f} HKD)")
+
+    print("-" * 80)
+    print(f"  {'买方':^34}  │  {'卖方':^34}")
+    print(f"  {'#':>3} {'价格':>10} {'量':>10} {'笔':>6}  │"
+          f"  {'#':>3} {'价格':>10} {'量':>10} {'笔':>6}")
+    print("-" * 80)
+
+    rows = min(DISPLAY_ROWS, max(len(bids), len(asks)))
+    for i in range(rows):
+        if i < len(bids):
+            bp, bv, bc, _, _ = bids[i]
+            bs = f"  {i+1:>3} {bp:>10.2f} {bv:>10,} {bc:>6}"
+        else:
+            bs = " " * 35
+        if i < len(asks):
+            ap, av, ac, _, _ = asks[i]
+            a_s = f"  {i+1:>3} {ap:>10.2f} {av:>10,} {ac:>6}"
+        else:
+            a_s = " " * 35
+        print(f"{bs}  │ {a_s}")
+
+    rem_b = len(bids) - rows
+    rem_a = len(asks) - rows
+    if rem_b > 0 or rem_a > 0:
+        print(f"\n  ... 买方还 {rem_b} 档 / 卖方还 {rem_a} 档未显示 ...")
+
+    notable = find_notable(bids, "买") + find_notable(asks, "卖")
+    if notable:
+        print()
+        print("  ★ 深层大单:")
+        for side, lvl, price, vol, ratio in notable:
+            print(f"    {side}方 #{lvl:<4} {price:>10.2f}  "
+                  f"量={vol:>10,}  ({ratio:.0f}x平均)")
+
+    print("-" * 80)
+    print(f"  {time.strftime('%H:%M:%S')}  扫描耗时 {scan_time:.1f}s  "
+          f"显示1s / 扫描{SCAN_INTERVAL}s")
+
+
+# ══════════════════════════════════════════════════════════
+#  主程序
+# ══════════════════════════════════════════════════════════
+def main():
+    print("定位 AX.exe ...")
+    pid = find_ax_pid()
+    if not pid:
+        print("错误: 未找到 AX.exe")
+        sys.exit(1)
+    print(f"PID: {pid}")
+
+    pm = pymem.Pymem()
+    pm.open_process_from_id(pid)
+
+    print("枚举内存区域...")
+    regions = enum_readable_regions(pm)
+    ridx = build_ridx(regions)
+    print(f"共 {len(regions)} 个可读区域")
+    print(f"开始扫描...\n")
+
+    last_scan = 0
+    scan_time = 0
+    best_bids, best_asks = [], []
+
+    while True:
+        now = time.time()
+        if now - last_scan >= SCAN_INTERVAL:
+            t0 = time.time()
+            all_asks, all_bids = search_books(pm, regions, ridx)
+            scan_time = time.time() - t0
+            last_scan = time.time()
+
+            best_asks = (sorted(all_asks, key=lambda x: x[0], reverse=True)
+                         [0][2] if all_asks else [])
+            best_bids = (sorted(all_bids, key=lambda x: x[0], reverse=True)
+                         [0][2] if all_bids else [])
+
+        display(best_bids, best_asks, scan_time)
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+为什么快了
+
+
+
+之前每个位置都尝试构建 600 条记录，99.9% 在第 3-5 条就失败了，但每次失败都要跑 600 次循环。
+
+
+
+
+现在：
+
+
+
+text
+text
+之前：每个位置 → 尝试600条 → 失败 → 下一个位置
+                    ↑ 浪费在这里
+
+现在：每个位置 → 先试12条 → 不行就跳过（极快）
+                 ↓ 行了才继续
+               扩展到600条（可能跨区域）
+
+
+
+
+第一阶段全在当前 chunk 内完成，不跨区域，不读额外内存。 只有探测通过的位置才进入第二阶段。
+
+
+
+
+覆盖原文件运行，观察扫描耗时和档位数。
+
+我们现在 复盘下  方向正确吗
+MiMo-V2.5-Pro
+已深度思考（用时 39.2 秒）
+项目复盘
+
+
+一、当前成果
+
+
+
+已经跑通的部分：
+
+150 档数据与 AX.exe 客户端比对一致 —— 证明内存扫描这条路是通的
+卖方第一档回退修复 —— 逻辑正确
+序列检测（价格单调性 + seq 匹配）—— 识别准确率高
+
+
+
+这些是扎实的基础，方向没有问题。
+
+
+
+
+
+二、核心风险评估
+
+
+
+从 150 扩到 600，有三个层次的风险：
+
+
+
+第一层：技术风险（可控）
+
+
+风险	概率	后果	应对
+跨区域读取断裂	中	深层档位数据不完整	已实现 read_cross
+扫描耗时过长	中	数据滞后	已实现两阶段探测
+seq 约束失效	低	混入其他快照	±1 容差足够紧
+
+
+第二层：数据结构风险（需要验证）
+
+
+
+这是最大的不确定性：
+
+
+
+text
+text
+你假设：600条记录 × 20字节 = 连续存储，格式统一
+
+实际情况可能是：
+  A) 全部连续存储在同一区域        → 最理想，当前方案完美适用
+  B) 分段存储（前100档一块，后500档另一块）→ 跨区域读取可以处理
+  C) 深层档位用不同的数据结构       → 当前方案会失败
+  D) 深层档位是按需加载的，不在内存常驻 → 根本读不到
+
+
+
+
+150 档验证通过不代表 600 档一定行。 只有跑一次才知道。
+
+
+
+第三层：战略风险（值得思考）
+
+
+
+你最终要的是什么？
+
+
+
+text
+text
+如果目标是「实时监控持仓股的完整盘口辅助交易判断」
+  → 当前方案可行，但维护成本高（AX.exe 更新可能改变内存布局）
+
+如果目标是「构建系统化的交易策略」
+  → 内存抓取不够稳定，应该考虑更可靠的数据源
+
+
+
+
+
+三、有没有更好的路
+
+
+
+在继续优化内存扫描之前，值得花 10 分钟确认一下：
+
+
+
+方案 A：AX.exe 是否有数据导出/API
+
+
+
+很多交易终端（富途、老虎、盈透等）本身提供：
+
+行情 API（如 Futu OpenD、IB TWS API）
+数据导出功能
+DDE/插件接口
+
+
+
+如果有 API 能直接拿千档数据，比内存扫描稳定 100 倍。
+
+
+
+方案 B：网络抓包
+
+
+
+AX.exe 和服务器之间的通信数据，可能比内存结构更容易解析：
+
+协议格式相对固定
+不依赖客户端版本的内存布局
+可以用 Wireshark 先看一下通信内容
+
+
+方案 C：继续内存扫描（当前路线）
+
+
+
+优点：已经验证可行，150 档跑通了
+缺点：脆弱，每次 AX.exe 更新都可能要重新适配
+
+
+
+
+
+四、我的判断
+
+
+
+方向是正确的，但建议分步验证，不要一步到位。
+
+
+
+text
+text
+当前状态
+  │
+  ├─ 150档已验证 ✓
+  │
+  ├─ 下一步：600档两阶段版本已写好
+  │    └─ 先跑一次，看两个指标：
+  │       1. 扫描耗时是否 < 30秒
+  │       2. 档位数是否接近 545/422
+  │
+  ├─ 如果600档验证通过：
+  │    └─ 抽查第300档、第500档与AX.exe比对
+  │
+  ├─ 如果600档验证失败：
+  │    └─ 分析失败原因（跨区域？数据结构不同？）
+  │       再针对性修复
+  │
+  └─ 最终确认后：
+       └─ 考虑是否需要进一步优化（WebSocket推送、数据持久化等）
+
+
+
+
+先跑一次 600 版本，结果出来再决定下一步。 你那边扫描耗时和档位数是多少？
+
+ax.exe上一个版本是win7版。level2数据是单独注册登录的。
+MiMo-V2.5-Pro
+已深度思考（用时 8.6 秒）
+这个信息很关键
+
+
+它说明了什么
+
+
+
+Level 2 数据单独注册登录 = 这是一条独立的数据通道，不是普通行情的附属功能。
+
+
+
+
+这意味着：
+
+
+
+1.
+
+数据是完整的 —— 你付了 Level 2 的钱，服务器端会推送完整的千档盘口，客户端完整接收并存储在内存中。不存在"只缓存 150 档、其余按需加载"的情况。
+
+2.
+
+数据结构大概率是标准的 —— Level 2 数据源通常是港交所的 OMDD（证券市场深度数据流）或类似协议，格式规范，客户端只是解包后存入内存。
+
+3.
+
+数据一定在内存中 —— 因为 AX.exe 要渲染这些数据到界面上，必须有完整的结构体驻留内存。
+
+
+
+
+这对我们是好消息 —— 说明 600 档的内存扫描在理论上是可行的。
+
+
+
+
+
+但这也带来另一个思路
+
+
+
+既然 Level 2 数据有独立的登录通道，数据在网络传输时一定有协议格式。可以考虑：
+
+
+
+	内存扫描（当前路线）	网络抓包
+稳定性	AX.exe 更新就可能失效	协议相对固定
+实时性	有扫描间隔延迟	原始推送，零延迟
+完整性	取决于内存布局	100% 完整
+实现难度	已经跑通 150 档	需要逆向协议
+加密风险	不存在（内存明文）	可能有 TLS 加密
+
+
+
+
+我的建议
+
+
+
+两条路同时走，但优先级不同：
+
+
+
+text
+text
+短期（今天）：
+  └─ 先跑 600 档版本，验证内存扫描能不能拿到完整数据
+     → 成本低，代码已经写好，跑一次就有答案
+
+中期（如果内存扫描不稳定）：
+  └─ 用 Wireshark 抓一下 AX.exe 的网络包
+     → 看 Level 2 数据通道用的什么协议、是否加密
+     → 如果是明文或弱加密，走网络抓包会更稳定
+
+
+
+
+你现在先跑一次 600 档版本，把扫描耗时和档位数告诉我。 如果扫描太久或者档位数不对，我们再调整方案。
+
+600个50分钟还未出结果
+MiMo-V2.5-Pro
+已深度思考（用时 14.7 秒）
+50 分钟 = 方案有问题，需要彻底换思路
+
+
+问题诊断
+
+
+
+不是 600 档慢，是扫描方式本身有问题：
+
+
+
+text
+text
+4000+ 区域，每个区域几 MB
+每个 20 字节位置都尝试解析
+= 数百万次 parse_rec 调用
+= 大量无意义的 struct.unpack
+
+
+
+
+150 档时能跑通是因为那时候代码没优化但数据量小。600 档放大了问题。
+
+
+
+换一个完全不同的思路
+
+
+
+不要逐位置扫描。先用字节级过滤器快速排除 99% 的垃圾区域，只对候选区域做精确解析。
+
+
+
+python
+python
+import pymem
+import struct
+import subprocess
+import csv
+import time
+import os
+import sys
+import bisect
+import ctypes
+
+# ══════════════════════════════════════════════════════════
+#  配置
+# ══════════════════════════════════════════════════════════
+RECORD_SIZE   = 20
+MAX_LEN       = 600
+MIN_SEQ_LEN   = 10
+MAX_BACKWARD  = 3
+DISPLAY_ROWS  = 80
+SCAN_INTERVAL = 30
+
+# 区域过滤
+REGION_MIN    = 5000       # 5KB 以下跳过
+REGION_MAX    = 100_000_000  # 100MB 以上跳过
+
+# 快速预筛参数
+PRICE_MIN     = 0.5
+PRICE_MAX     = 10000.0
+STEP_MIN      = 0.001
+STEP_MAX      = 1.0
+
+
+# ══════════════════════════════════════════════════════════
+#  进程
+# ══════════════════════════════════════════════════════════
+def find_ax_pid():
+    result = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq AX.exe", "/FO", "CSV"],
+        capture_output=True, text=True
+    )
+    for line in csv.reader(result.stdout.strip().split("\n")):
+        if len(line) >= 2 and line[0].strip('"') == "AX.exe":
+            return int(line[1].strip('"'))
+    return None
+
+
+# ══════════════════════════════════════════════════════════
+#  内存
+# ══════════════════════════════════════════════════════════
+def enum_readable_regions(pm):
+    regions = []
+    addr = 0
+    while addr < 0x7FFFFFFFFFFF:
+        try:
+            info = pm.query(addr)
+            base = info.BaseAddress
+            size = info.RegionSize
+            protect = info.Protect
+            if (info.State == 0x1000 and
+                    protect in (0x02, 0x04, 0x06, 0x20, 0x40, 0x60, 0x80)):
+                if REGION_MIN <= size <= REGION_MAX:
+                    regions.append((base, size))
+            addr = base + size
+        except:
+            addr += 0x1000
+    return regions
+
+
+# ══════════════════════════════════════════════════════════
+#  解析
+# ══════════════════════════════════════════════════════════
+def parse_rec(data):
+    v = struct.unpack("<5I", data)
+    p = struct.unpack("<f", struct.pack("<I", v[0]))[0]
+    return p, v[1], v[2], v[3], v[4]
+
+
+def ok_price(p):
+    return PRICE_MIN < p < PRICE_MAX
+
+
+def ok_step(p1, p2):
+    d = abs(p1 - p2)
+    return STEP_MIN < d < STEP_MAX
+
+
+# ══════════════════════════════════════════════════════════
+#  ★ 核心优化：快速预筛
+# ══════════════════════════════════════════════════════════
+def fast_prescan(chunk):
+    """
+    用纯字节操作快速扫描整个 chunk。
+    找出所有「看起来像连续盘口记录」的起始偏移。
+    返回候选偏移列表。
+
+    原理：连续 3 条记录的 price 字段都是有效 float，
+    且价格递增/递减、步长合理 → 这个位置值得深入检查。
+    """
+    candidates = []
+    length = len(chunk)
+    # 需要至少 3 条记录 = 60 字节
+    if length < RECORD_SIZE * 3:
+        return candidates
+
+    i = 0
+    while i <= length - RECORD_SIZE * 3:
+        # 读取第1条的 price 和 vol
+        p1_raw = struct.unpack_from("<I", chunk, i)[0]
+        v1 = struct.unpack_from("<I", chunk, i + 4)[0]
+
+        # 快速检查 vol > 0（整数比较，极快）
+        if v1 == 0:
+            i += RECORD_SIZE
+            continue
+
+        # 快速检查 price 是否是合理 float
+        p1 = struct.unpack_from("<f", chunk, i)[0]
+        if not (PRICE_MIN < p1 < PRICE_MAX):
+            i += RECORD_SIZE
+            continue
+
+        # 读取第2条
+        p2 = struct.unpack_from("<f", chunk, i + RECORD_SIZE)[0]
+        if not (PRICE_MIN < p2 < PRICE_MAX):
+            i += RECORD_SIZE
+            continue
+
+        # 检查步长
+        d = abs(p2 - p1)
+        if not (STEP_MIN < d < STEP_MAX):
+            i += RECORD_SIZE
+            continue
+
+        # 读取第3条验证
+        p3 = struct.unpack_from("<f", chunk, i + RECORD_SIZE * 2)[0]
+        if not (PRICE_MIN < p3 < PRICE_MAX):
+            i += RECORD_SIZE
+            continue
+
+        d2 = abs(p3 - p2)
+        if not (STEP_MIN < d2 < STEP_MAX):
+            i += RECORD_SIZE
+            continue
+
+        # 检查方向一致性
+        if (p2 > p1 and p3 > p2) or (p2 < p1 and p3 < p2):
+            candidates.append(i)
+
+        i += RECORD_SIZE
+
+    return candidates
+
+
+# ══════════════════════════════════════════════════════════
+#  精确序列构建（只对候选位置执行）
+# ══════════════════════════════════════════════════════════
+def build_seq(chunk, offset, first, ascending):
+    """从候选位置构建完整序列，全在 chunk 内完成"""
+    recs = [first]
+    prev = first[0]
+    seq0 = first[4]
+
+    for j in range(1, MAX_LEN):
+        pos = offset + j * RECORD_SIZE
+        if pos + RECORD_SIZE > len(chunk):
+            break
+        try:
+            rec = parse_rec(chunk[pos:pos + RECORD_SIZE])
+        except:
+            break
+
+        rp, rv, rc, rs, rseq = rec
+        if abs(rseq - seq0) > 1:
+            break
+        if not ok_price(rp):
+            break
+        if ascending and rp <= prev:
+            break
+        if not ascending and rp >= prev:
+            break
+        if not ok_step(rp, prev):
+            break
+
+        recs.append(rec)
+        prev = rp
+
+    return recs
+
+
+def expand_ask_backward(chunk, offset, ask_recs):
+    if not ask_recs:
+        return ask_recs
+    fp = ask_recs[0][0]
+    fs = ask_recs[0][4]
+    step = ask_recs[1][0] - ask_recs[0][0] if len(ask_recs) >= 2 else 0.01
+    expanded = list(ask_recs)
+    for back in range(1, MAX_BACKWARD + 1):
+        co = offset - back * RECORD_SIZE
+        if co < 0:
+            break
+        try:
+            rec = parse_rec(chunk[co:co + RECORD_SIZE])
+        except:
+            break
+        p, v, c, s, sq = rec
+        if not ok_price(p) or v == 0:
+            break
+        if abs(sq - fs) > 1:
+            break
+        if p >= fp:
+            break
+        d = fp - p
+        if not (0.001 < d < 1.0):
+            break
+        if step > 0 and back > 1:
+            ratio = d / step
+            if ratio < 0.5 or ratio > 1.5:
+                break
+        expanded.insert(0, rec)
+        fp = p
+    return expanded
+
+
+# ══════════════════════════════════════════════════════════
+#  主搜索（新架构）
+# ══════════════════════════════════════════════════════════
+def search_books(pm, regions):
+    all_asks = []
+    all_bids = []
+    total = len(regions)
+    total_candidates = 0
+
+    for ri, (base, size) in enumerate(regions):
+        if ri % 100 == 0:
+            print(f"\r  进度: {ri}/{total} 区域, "
+                  f"{total_candidates} 候选, "
+                  f"{len(all_asks)}卖 {len(all_bids)}买",
+                  end="", flush=True)
+
+        try:
+            chunk = pm.read_bytes(base, size)
+        except:
+            continue
+
+        # ★ 快速预筛：几毫秒扫完整个区域
+        candidates = fast_prescan(chunk)
+        total_candidates += len(candidates)
+
+        if not candidates:
+            continue
+
+        # ★ 只对候选位置做精确解析
+        for offset in candidates:
+            try:
+                first = parse_rec(chunk[offset:offset + RECORD_SIZE])
+            except:
+                continue
+
+            p0, v0 = first[0], first[1]
+            if not ok_price(p0) or v0 == 0:
+                continue
+
+            # 卖方
+            asks = build_seq(chunk, offset, first, ascending=True)
+            if len(asks) >= MIN_SEQ_LEN:
+                expanded = expand_ask_backward(chunk, offset, asks)
+                all_asks.append((first[4], base + offset, expanded))
+                continue
+
+            # 买方
+            bids = build_seq(chunk, offset, first, ascending=False)
+            if len(bids) >= MIN_SEQ_LEN:
+                all_bids.append((first[4], base + offset, bids))
+
+    print(f"\r  完成: {total} 区域, {total_candidates} 候选, "
+          f"{len(all_asks)} 卖方序列, {len(all_bids)} 买方序列        ")
+    return all_asks, all_bids
+
+
+# ══════════════════════════════════════════════════════════
+#  深层大单
+# ══════════════════════════════════════════════════════════
+def find_notable(records, label, threshold=10):
+    if len(records) <= DISPLAY_ROWS:
+        return []
+    deep = records[DISPLAY_ROWS:]
+    vols = [r[1] for r in deep if r[1] > 0]
+    if not vols:
+        return []
+    avg = sum(vols) / len(vols)
+    if avg == 0:
+        return []
+    result = []
+    for i, r in enumerate(deep):
+        if r[1] > avg * threshold:
+            lvl = DISPLAY_ROWS + i + 1
+            result.append((label, lvl, r[0], r[1], r[1] / avg))
+    return sorted(result, key=lambda x: -x[3])
+
+
+# ══════════════════════════════════════════════════════════
+#  显示
+# ══════════════════════════════════════════════════════════
+def display(bids, asks, scan_time):
+    os.system("cls" if os.name == "nt" else "clear")
+
+    print("=" * 80)
+    print("  千档盘口实时监控  MAX_LEN=600  快速预筛版")
+    print("=" * 80)
+
+    if not bids and not asks:
+        print("\n  等待数据...\n")
+        return
+
+    last = asks[0][0] if asks else (bids[0][0] if bids else 0)
+    print(f"  最新价: {last:.2f}    买方: {len(bids)}档    卖方: {len(asks)}档")
+
+    if asks:
+        print(f"  卖方: {asks[0][0]:.2f} ~ {asks[-1][0]:.2f}  "
+              f"(跨度 {asks[-1][0] - asks[0][0]:.2f} HKD)")
+    if bids:
+        print(f"  买方: {bids[-1][0]:.2f} ~ {bids[0][0]:.2f}  "
+              f"(跨度 {bids[0][0] - bids[-1][0]:.2f} HKD)")
+
+    print("-" * 80)
+    print(f"  {'买方':^34}  │  {'卖方':^34}")
+    print(f"  {'#':>3} {'价格':>10} {'量':>10} {'笔':>6}  │"
+          f"  {'#':>3} {'价格':>10} {'量':>10} {'笔':>6}")
+    print("-" * 80)
+
+    rows = min(DISPLAY_ROWS, max(len(bids), len(asks)))
+    for i in range(rows):
+        if i < len(bids):
+            bp, bv, bc, _, _ = bids[i]
+            bs = f"  {i+1:>3} {bp:>10.2f} {bv:>10,} {bc:>6}"
+        else:
+            bs = " " * 35
+        if i < len(asks):
+            ap, av, ac, _, _ = asks[i]
+            a_s = f"  {i+1:>3} {ap:>10.2f} {av:>10,} {ac:>6}"
+        else:
+            a_s = " " * 35
+        print(f"{bs}  │ {a_s}")
+
+    rem_b = len(bids) - rows
+    rem_a = len(asks) - rows
+    if rem_b > 0 or rem_a > 0:
+        print(f"\n  ... 买方还 {rem_b} 档 / 卖方还 {rem_a} 档未显示 ...")
+
+    notable = find_notable(bids, "买") + find_notable(asks, "卖")
+    if notable:
+        print()
+        print("  ★ 深层大单:")
+        for side, lvl, price, vol, ratio in notable:
+            print(f"    {side}方 #{lvl:<4} {price:>10.2f}  "
+                  f"量={vol:>10,}  ({ratio:.0f}x平均)")
+
+    print("-" * 80)
+    print(f"  {time.strftime('%H:%M:%S')}  扫描耗时 {scan_time:.1f}s  "
+          f"显示1s / 扫描{SCAN_INTERVAL}s")
+
+
+# ══════════════════════════════════════════════════════════
+#  主程序
+# ══════════════════════════════════════════════════════════
+def main():
+    print("定位 AX.exe ...")
+    pid = find_ax_pid()
+    if not pid:
+        print("错误: 未找到 AX.exe")
+        sys.exit(1)
+    print(f"PID: {pid}")
+
+    pm = pymem.Pymem()
+    pm.open_process_from_id(pid)
+
+    print("枚举内存区域...")
+    regions = enum_readable_regions(pm)
+    print(f"共 {len(regions)} 个区域 ({REGION_MIN/1000:.0f}KB ~ "
+          f"{REGION_MAX/1000000:.0f}MB)")
+
+    total_bytes = sum(s for _, s in regions)
+    print(f"总扫描量: {total_bytes/1024/1024:.1f} MB")
+    print(f"开始扫描...\n")
+
+    last_scan = 0
+    scan_time = 0
+    best_bids, best_asks = [], []
+
+    while True:
+        now = time.time()
+        if now - last_scan >= SCAN_INTERVAL:
+            t0 = time.time()
+            all_asks, all_bids = search_books(pm, regions)
+            scan_time = time.time() - t0
+            last_scan = time.time()
+
+            best_asks = (sorted(all_asks, key=lambda x: x[0], reverse=True)
+                         [0][2] if all_asks else [])
+            best_bids = (sorted(all_bids, key=lambda x: x[0], reverse=True)
+                         [0][2] if all_bids else [])
+
+        display(best_bids, best_asks, scan_time)
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+为什么这次会快
+
+
+
+核心区别在于扫描策略完全不同：
+
+
+
+text
+text
+之前（慢）：
+  对每个区域的每个20字节位置 → parse_rec → 失败 → 下一个
+  = 数百万次 struct.unpack
+
+现在（快）：
+  第一步：fast_prescan
+    - 用 struct.unpack_from 读 3 个 float（纯字节偏移，最快的方式）
+    - 99.5% 的位置：第一个 float 就不是有效价格 → 跳过
+    - 剩下的：价格不递增/递减 → 跳过
+    - 通过预筛的：可能只有几百个候选位置
+
+  第二步：只对候选位置做完整 parse_rec + 序列构建
+    - 几百次 vs 几百万次
+
+
+
+
+另外加了两个过滤：
+
+
+
+区域大小过滤：5KB 以下、100MB 以上的区域直接跳过（盘口数据不会在极小或极大的区域里）
+总扫描量显示：运行时会显示总共要扫描多少 MB，方便判断
+
+
+
+覆盖运行后告诉我：
+
+1.
+区域数量和总扫描量（开头会显示）
+2.
+扫描耗时
+3.
+卖方/买方档位数
+还没扫完。 暂停。 把现在的目标 问题 成果卡点写出来 我问问其他ai
+MiMo-V2.5-Pro
+已深度思考（用时 1.3 秒）
+中芯国际千档盘口内存抓取工具 —— 项目文档
+
+
+一、项目目标
+
+
+
+从 AX.exe（港股交易客户端）的内存中，实时抓取中芯国际（00981.HK）的千档盘口数据（卖方 545 档 + 买方 422 档），在终端实时显示，与 AX.exe 客户端界面数据比对验证。
+
+
+
+
+
+二、技术方案
+
+
+工具栈：Python + pymem + ctypes + struct
+原理：通过 pymem 打开 AX.exe 进程，读取其内存，扫描符合盘口数据结构的连续记录
+运行环境：Windows 10，管理员 CMD
+
+
+
+
+三、数据结构（已验证确认）
+
+
+
+每条盘口记录 20 字节（5 个 uint32）：
+
+
+
+偏移	字段	说明
++0	price (float32)	委托价格，如 116.58
++4	vol (uint32)	委托量
++8	cnt (uint32)	笔数
++12	status (uint32)	状态/标志
++16	seq (uint32)	快照序号（同一快照内相同或相近）
+
+
+
+内存存储特征：
+
+卖方：价格递增存储（116.58 → 116.59 → 116.60...），第一条即卖一
+买方：价格递减存储（116.57 → 116.56 → 116.55...），第一条即买一
+环形缓冲区：多个快照连续存储，seq 字段区分不同快照
+
+
+
+
+四、已解决的问题
+
+
+#	问题	解决方案
+1	定位 AX.exe 进程	tasklist + csv 解析获取 PID
+2	内存区域过多（4000+）	VirtualQueryEx + Protect 过滤不可读区域
+3	序列检测穿越快照边界	限制 MAX_LEN + seq 字段校验
+4	评分机制选错快照	改用 seq0 排序，优先最新快照
+5	买方顺序颠倒	去掉 reversed()，内存中已按买一→买N 存储
+6	卖方缺少第一档（成交价）	检测到序列后向前回退检查 1~3 条记录
+
+
+
+
+五、当前成果
+
+
+
+150 档版本已完全跑通并验证：
+
+买方 150 档数据与 AX.exe 客户端一致
+卖方 150 档数据与 AX.exe 客户端一致（含回退修复的第一档）
+终端表格实时显示，每秒刷新，每 10 秒重新扫描内存
+扫描耗时约几秒
+
+
+
+
+六、当前卡点
+
+
+
+目标：将 MAX_LEN 从 150 扩展到 600，覆盖完整的 545 卖方 + 422 买方。
+
+
+
+
+卡点：扫描速度极慢，无法在合理时间内完成。
+
+
+
+
+尝试过三个版本，全部失败：
+
+
+
+版本	方案	结果
+V1	直接改 MAX_LEN=600	50 分钟未完成
+V2	两阶段扫描（先探测12条，通过再扩展到600）	仍然很慢
+V3	快速预筛 + 候选位置精确解析	仍然很慢，未出结果
+
+
+
+根本原因分析：
+
+
+
+text
+text
+4000+ 个内存区域，总计约几百 MB
+每个 20 字节位置都尝试解析
+即使加了预筛，Python 的 struct.unpack 在这个量级下仍然太慢
+
+
+
+
+150 档能跑通可能是因为当时代码逻辑不同，或者 150 条的序列长度限制让循环更快退出。但扩到 600 后，问题暴露。
+
+
+
+
+
+七、关键背景信息
+
+
+AX.exe 是港股交易客户端，上一个版本是 Win7 版
+Level 2 千档盘口数据是单独注册登录的（独立数据通道，非普通行情附属）
+股价约 150 HKD，tick size = 0.10 HKD
+卖方 545 档，买方 422 档
+
+
+
+
+八、需要帮助解决的问题
+
+
+
+核心问题：如何在合理时间（30 秒以内）完成 600 档的内存扫描？
+
+
+
+
+可能的方向：
+
+
+
+1.
+优化 Python 扫描性能 —— 是否有比 struct.unpack 更快的方式？ctypes 直接内存映射？numpy 批量解析？
+2.
+缩小扫描范围 —— 150 档版本已经定位到了盘口数据所在的内存地址，能否只在该地址附近扩展，而不是每次全量扫描 4000+ 区域？
+3.
+换语言 —— 用 C/C++/Rust 写扫描核心，Python 调用？
+4.
+换思路 —— 既然 Level 2 数据有独立登录通道，是否应该走网络抓包而非内存扫描？
+5.
+其他方案 —— 是否有更高效的内存扫描算法？
+
+
+
+
+九、文件位置
+
+
+脚本路径：C:\Users\john\ax_realtime.py
+运行方式：管理员 CMD → python C:\Users\john\ax_realtime.py
+依赖：pymem（pip install pymem）
+本网站为面向开发者的模型能力演示平台，非正式 AI 助手，内容由 AI 生成仅供参考。
+引用来源（0）

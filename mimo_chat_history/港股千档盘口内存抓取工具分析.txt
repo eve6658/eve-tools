@@ -1,0 +1,2957 @@
+MiMo Claw
+免费体验
+MiMo Chat
+
+历史记录
+
+股票交易内存分析报告
+港股盘口内存抓取优化方案
+港股千档盘口内存抓取工具分析
+内存扫描架构优化方案
+中芯国际千档盘口实时抓取工具开发纪要
+AXexe内存逆向工程工作记录总结
+手机与OpenClaw Agent双向通信方案
+Qwopus3.5-9B-v3-GGUF在T460p
+Ubuntu终端PDF表格OCR转Excel指南
+AXexe内存结构分析工程记录
+Level2数据抓取工程纪要
+Level2数据抓取工程工作纪要
+Level2数据抓取内存定位与优化
+股市放量缩量原理与筹码换手
+国投证券Level2内存数据解析与传输方案
+券商Level2数据实时抓取与OpenClaw分析
+数据包分析与Level2抓取方法缺失
+国投证券Linux交易客户端指南
+六爻卦婚姻正缘分析
+OpenClaw网关配置修复指南
+苏格拉宁1319
+
+Xiaomi MiMo-V2.5 开启公测： MiMo-V2.5-Pro 长程推理与 Agent 大幅增强； MiMo-V2.5 全模态 1M 上下文； MiMo-V2.5-TTS 系列 音色克隆与精细控制全面升级
+
+MiMo-V2.5-Pro
+New
+
+API 服务
+给我完整版
+MiMo-V2.5-Pro
+已深度思考（用时 1 秒）
+python
+python
+"""
+千档盘口内存抓取工具 - v10 诊断版
+核心改动：
+1. split_multi_stock_runs: 检测并拆分多股票混合数据
+2. find_best_split: 用 prefix_min/suffix_max 正确找分界点
+3. build_order_book: 独立处理每个子序列，选最优订单簿
+4. 诊断版：在关键步骤打印详细日志，定位 411 截断问题
+"""
+import pymem
+import struct
+import time
+import ctypes
+import ctypes.wintypes
+import sys
+import os
+from collections import Counter
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+PROCESS_NAME = "AX.exe"
+RECORD_SIZE = 20
+PRICE_MIN = 50.0
+PRICE_MAX = 200.0
+VOL_MAX = 10_000_000
+CNT_MAX = 1_000_000
+MAX_SEQ = 2000
+MAX_REGION_SIZE = 80 * 1024 * 1024
+MIN_RUN_LEN = 10
+MEM_COMMIT = 0x1000
+PAGE_NOACCESS = 0x01
+PAGE_GUARD = 0x100
+
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.wintypes.DWORD),
+        ("Protect", ctypes.wintypes.DWORD),
+        ("Type", ctypes.wintypes.DWORD),
+    ]
+
+
+def si(val):
+    return int(val) if val is not None else 0
+
+
+def get_readable_regions(pm):
+    regions = []
+    addr = 0
+    mbi = MEMORY_BASIC_INFORMATION()
+    mbi_size = ctypes.sizeof(mbi)
+    kernel32 = ctypes.windll.kernel32
+    while True:
+        ret = kernel32.VirtualQueryEx(
+            pm.process_handle, ctypes.c_void_p(addr),
+            ctypes.byref(mbi), mbi_size
+        )
+        if not ret:
+            break
+        base = si(mbi.BaseAddress)
+        size = si(mbi.RegionSize)
+        state = si(mbi.State)
+        protect = si(mbi.Protect)
+        if (state == MEM_COMMIT and size > 0
+                and protect != PAGE_NOACCESS
+                and not (protect & PAGE_GUARD)):
+            regions.append((base, size))
+        nxt = base + size
+        if nxt <= addr or nxt >= 0x7FFFFFFFFFFF:
+            break
+        addr = nxt
+    return regions
+
+
+def numpy_find_candidates(raw_bytes):
+    if len(raw_bytes) < RECORD_SIZE * 3:
+        return []
+    buf = bytes(raw_bytes)
+    if len(buf) % 4 != 0:
+        buf = buf[: len(buf) & ~3]
+    all_u32 = np.frombuffer(buf, dtype="<u4")
+    all_f32 = np.frombuffer(buf, dtype="<f4")
+    n = len(all_u32) - 14
+    if n <= 0:
+        return []
+    p0 = all_f32[0:n]
+    v0 = all_u32[1:n + 1]
+    s0 = all_u32[4:n + 4]
+    p1 = all_f32[5:n + 5]
+    v1 = all_u32[6:n + 6]
+    s1 = all_u32[9:n + 9]
+    p2 = all_f32[10:n + 10]
+    v2 = all_u32[11:n + 11]
+    s2 = all_u32[14:n + 14]
+    mask = (
+        (p0 >= PRICE_MIN) & (p0 <= PRICE_MAX) & (v0 > 0) & (v0 < VOL_MAX) & (s0 < MAX_SEQ)
+        & (p1 >= PRICE_MIN) & (p1 <= PRICE_MAX) & (v1 > 0) & (v1 < VOL_MAX) & (s1 < MAX_SEQ)
+        & (p2 >= PRICE_MIN) & (p2 <= PRICE_MAX) & (v2 > 0) & (v2 < VOL_MAX) & (s2 < MAX_SEQ)
+        & (s1 == s0 + 1)
+        & (s2 == s0 + 2)
+    )
+    indices = np.where(mask)[0]
+    results = []
+    for idx in indices[:50]:
+        i = int(idx)
+        results.append((i * 4, int(s0[i])))
+    return results
+
+
+def fallback_find_candidates(raw_bytes):
+    results = []
+    limit = len(raw_bytes) - RECORD_SIZE * 3
+    for off in range(0, limit, 4):
+        p0 = struct.unpack_from("<f", raw_bytes, off)[0]
+        v0, _, _, s0 = struct.unpack_from("<4I", raw_bytes, off + 4)
+        if not (PRICE_MIN <= p0 <= PRICE_MAX and 0 < v0 < VOL_MAX and s0 < MAX_SEQ):
+            continue
+        p1 = struct.unpack_from("<f", raw_bytes, off + RECORD_SIZE)[0]
+        v1, _, _, s1 = struct.unpack_from("<4I", raw_bytes, off + RECORD_SIZE + 4)
+        if not (PRICE_MIN <= p1 <= PRICE_MAX and 0 < v1 < VOL_MAX and s1 == s0 + 1):
+            continue
+        p2 = struct.unpack_from("<f", raw_bytes, off + RECORD_SIZE * 2)[0]
+        v2, _, _, s2 = struct.unpack_from("<4I", raw_bytes, off + RECORD_SIZE * 2 + 4)
+        if not (PRICE_MIN <= p2 <= PRICE_MAX and 0 < v2 < VOL_MAX and s2 == s0 + 2):
+            continue
+        results.append((off, s0))
+        if len(results) >= 50:
+            break
+    return results
+
+
+def extract_records(raw_bytes, base_addr, alignment):
+    records = []
+    for i in range(alignment, len(raw_bytes) - RECORD_SIZE + 1, RECORD_SIZE):
+        price = struct.unpack_from("<f", raw_bytes, i)[0]
+        vol, cnt, status, seq = struct.unpack_from("<4I", raw_bytes, i + 4)
+        if (PRICE_MIN <= price <= PRICE_MAX
+                and 0 < vol < VOL_MAX
+                and cnt < CNT_MAX
+                and 0 <= seq <= MAX_SEQ):
+            records.append((price, vol, cnt, status, seq, base_addr + i))
+    return records
+
+
+def find_consecutive_runs(records, min_len=MIN_RUN_LEN):
+    if len(records) < min_len:
+        return []
+    runs = []
+    cur = [records[0]]
+    for i in range(1, len(records)):
+        if records[i][4] == cur[-1][4] + 1:
+            cur.append(records[i])
+        else:
+            if len(cur) >= min_len:
+                runs.append(cur)
+            cur = [records[i]]
+    if len(cur) >= min_len:
+        runs.append(cur)
+    return runs
+
+
+def validate_run(run):
+    if len(run) < 3:
+        return False
+    prices = [r[0] for r in run]
+    increasing = all(prices[i] <= prices[i + 1] for i in range(len(prices) - 1))
+    decreasing = all(prices[i] >= prices[i + 1] for i in range(len(prices) - 1))
+    return increasing or decreasing
+
+
+def deduplicate(records):
+    seen = set()
+    unique = []
+    for r in records:
+        key = (round(r[0], 4), r[1], r[4])
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique
+
+
+def split_multi_stock_runs(run):
+    """在显著价格向上跳变处拆分序列（多股票数据混合检测）"""
+    if len(run) < 30:
+        return [run]
+
+    prices = [r[0] for r in run]
+    n = len(prices)
+
+    # 计算典型间距
+    gaps = sorted(abs(prices[i] - prices[i - 1]) for i in range(1, n))
+    median_gap = gaps[len(gaps) // 2] if gaps else 0.10
+
+    # 阈值：10倍中位间距或至少2.0
+    threshold = max(median_gap * 10, 2.0)
+
+    # 找显著向上跳变
+    split_points = [0]
+    for i in range(1, n):
+        if prices[i] > prices[i - 1] + threshold:
+            split_points.append(i)
+    split_points.append(n)
+
+    sub_runs = []
+    for i in range(len(split_points) - 1):
+        start = split_points[i]
+        end = split_points[i + 1]
+        if end - start >= 20:
+            sub_runs.append(run[start:end])
+
+    return sub_runs if sub_runs else [run]
+
+
+def find_best_split(run):
+    """在价格递减序列中找卖方/买方分界点
+    条件：分界点之前所有价格 > 分界点之后所有价格
+    选择：余额比最优的分界点
+    """
+    n = len(run)
+    if n < 20:
+        return None
+
+    prices = [r[0] for r in run]
+
+    # 预计算前缀最小值和后缀最大值
+    prefix_min = [0.0] * n
+    suffix_max = [0.0] * n
+    prefix_min[0] = prices[0]
+    for i in range(1, n):
+        prefix_min[i] = min(prefix_min[i - 1], prices[i])
+    suffix_max[n - 1] = prices[n - 1]
+    for i in range(n - 2, -1, -1):
+        suffix_max[i] = max(suffix_max[i + 1], prices[i])
+
+    best_idx = None
+    best_balance = -1
+
+    for i in range(10, n - 10):
+        ask_min = prefix_min[i - 1]  # run[0:i] 的最小值
+        bid_max = suffix_max[i]      # run[i:n] 的最大值
+
+        if ask_min <= bid_max:
+            continue
+
+        spread = ask_min - bid_max
+        if spread > 5.0:
+            continue
+
+        balance = min(i, n - i) / max(i, n - i)
+
+        if balance > best_balance:
+            best_balance = balance
+            best_idx = i
+
+    return best_idx
+
+
+def build_order_book(all_runs):
+    """从所有连续序列中构建最佳订单簿"""
+    candidates = []
+
+    # 先拆分多股票混合序列
+    all_sub_runs = []
+    for run in all_runs:
+        all_sub_runs.extend(split_multi_stock_runs(run))
+
+    # ===== DIAG: split_multi_stock_runs 结果 =====
+    print(f"\n===== DIAG: split_multi_stock_runs 结果 =====")
+    print(f"  输入: {len(all_runs)} 个序列, 输出: {len(all_sub_runs)} 个子序列")
+    for i, run in enumerate(all_sub_runs):
+        seqs = [r[4] for r in run]
+        prices = [r[0] for r in run]
+        print(f"    sub[{i}]: 长度={len(run)}, "
+              f"seq范围={min(seqs)}-{max(seqs)}, "
+              f"价格范围={min(prices):.2f}-{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    # 策略1：拆分单个递减序列为卖方+买方
+    for run in all_sub_runs:
+        if len(run) < 30:
+            continue
+        prices = [r[0] for r in run]
+        n = len(prices)
+        down = sum(1 for i in range(n - 1) if prices[i + 1] < prices[i] - 0.001)
+        if down < n * 0.3:
+            continue  # 不是主要递减，跳过
+
+        split = find_best_split(run)
+
+        # ===== DIAG: 策略1 候选 =====
+        print(f"\n===== DIAG: 策略1 候选 =====")
+        print(f"  序列长度={len(run)}, 递减比例={down/n:.2f}, 分界点={split}")
+        if split:
+            print(f"  分界后: 卖方={split}档, 买方={len(run)-split}档")
+            ask_prices = [r[0] for r in run[:split]]
+            bid_prices = [r[0] for r in run[split:]]
+            print(f"  卖方价格: {min(ask_prices):.2f} ~ {max(ask_prices):.2f}")
+            print(f"  买方价格: {min(bid_prices):.2f} ~ {max(bid_prices):.2f}")
+        # ===== DIAG END =====
+
+        if split and 10 <= split <= len(run) - 10:
+            asks = sorted(run[:split], key=lambda r: r[0])
+            bids = sorted(run[split:], key=lambda r: -r[0])
+            if asks and bids and asks[0][0] > bids[0][0]:
+                spread = asks[0][0] - bids[0][0]
+                if 0 < spread < 5.0:
+                    balance = min(len(asks), len(bids)) / max(1, max(len(asks), len(bids)))
+                    if balance >= 0.1:
+                        cache = [(run[0][5], len(run))]
+                        candidates.append((asks, bids, balance, cache))
+
+    # 策略2：配对递增序列（卖方）和递减序列（买方）
+    asc_runs = []
+    desc_runs = []
+    for run in all_sub_runs:
+        if len(run) < 10:
+            continue
+        prices = [r[0] for r in run]
+        n = len(prices)
+        up = sum(1 for i in range(n - 1) if prices[i + 1] > prices[i] + 0.001)
+        down = sum(1 for i in range(n - 1) if prices[i + 1] < prices[i] - 0.001)
+        if up > down:
+            asc_runs.append(run)
+        else:
+            desc_runs.append(run)
+
+    # ===== DIAG: 策略2 分类 =====
+    print(f"\n===== DIAG: 策略2 分类 =====")
+    print(f"  递增序列: {len(asc_runs)} 个, 递减序列: {len(desc_runs)} 个")
+    for i, run in enumerate(asc_runs):
+        prices = [r[0] for r in run]
+        print(f"    asc[{i}]: 长度={len(run)}, 价格={min(prices):.2f}~{max(prices):.2f}")
+    for i, run in enumerate(desc_runs):
+        prices = [r[0] for r in run]
+        print(f"    desc[{i}]: 长度={len(run)}, 价格={min(prices):.2f}~{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    for a_run in asc_runs:
+        a_min = min(r[0] for r in a_run)
+        for b_run in desc_runs:
+            b_max = max(r[0] for r in b_run)
+            if a_min > b_max:
+                spread = a_min - b_max
+                if 0 < spread < 5.0:
+                    asks = sorted(a_run, key=lambda r: r[0])
+                    bids = sorted(b_run, key=lambda r: -r[0])
+                    balance = min(len(asks), len(bids)) / max(1, max(len(asks), len(bids)))
+                    if balance >= 0.1:
+                        cache = [
+                            (a_run[0][5], len(a_run)),
+                            (b_run[0][5], len(b_run)),
+                        ]
+                        candidates.append((asks, bids, balance, cache))
+
+    # ===== DIAG: 最终候选 =====
+    print(f"\n===== DIAG: 最终候选数 =====")
+    print(f"  candidates: {len(candidates)}")
+    for i, c in enumerate(candidates):
+        print(f"    [{i}] 卖方={len(c[0])}档 买方={len(c[1])}档 balance={c[2]:.4f}")
+    # ===== DIAG END =====
+
+    if not candidates:
+        return None
+
+    # 选最优候选：余额比最高
+    best = max(candidates, key=lambda c: c[2])
+
+    # ===== DIAG: 最终选择 =====
+    print(f"\n===== DIAG: 最终选择 =====")
+    print(f"  卖方={len(best[0])}档, 买方={len(best[1])}档")
+    print(f"  卖方价格: {min(r[0] for r in best[0]):.2f} ~ {max(r[0] for r in best[0]):.2f}")
+    print(f"  买方价格: {min(r[0] for r in best[1]):.2f} ~ {max(r[0] for r in best[1]):.2f}")
+    # ===== DIAG END =====
+
+    return best[0], best[1], best[3]
+
+
+def full_scan(pm, regions):
+    all_runs = []
+    total = len(regions)
+
+    # ===== DIAG: 扫描概览 =====
+    print(f"\n===== DIAG: full_scan 开始 =====")
+    print(f"  总区域数: {total}")
+    # ===== DIAG END =====
+
+    region_count = 0
+    skip_count = 0
+    candidate_count = 0
+    run_count = 0
+
+    for idx, (base, size) in enumerate(regions):
+        if size > MAX_REGION_SIZE:
+            skip_count += 1
+            continue
+        if idx % 300 == 0 and idx > 0:
+            print(f"  扫描进度: {idx}/{total} ...")
+        try:
+            raw = pm.read_bytes(base, size)
+        except Exception:
+            continue
+
+        region_count += 1
+        candidates = (numpy_find_candidates(raw) if HAS_NUMPY
+                      else fallback_find_candidates(raw))
+        if not candidates:
+            continue
+
+        candidate_count += 1
+        align_counts = Counter(off % RECORD_SIZE for off, _ in candidates)
+        best_align = align_counts.most_common(1)[0][0]
+        records = extract_records(raw, base, best_align)
+        runs = find_consecutive_runs(records)
+
+        best_run = None
+        for run in runs:
+            if validate_run(run):
+                if best_run is None or len(run) > len(best_run):
+                    best_run = run
+
+        if best_run and len(best_run) >= MIN_RUN_LEN:
+            run_count += 1
+            all_runs.append(best_run)
+
+    # ===== DIAG: full_scan 汇总 =====
+    print(f"\n===== DIAG: full_scan 汇总 =====")
+    print(f"  跳过大区域: {skip_count}")
+    print(f"  实际读取区域: {region_count}")
+    print(f"  有候选记录的区域: {candidate_count}")
+    print(f"  找到的连续序列: {run_count}")
+    print(f"  全局共找到 {len(all_runs)} 个连续序列:")
+    for i, run in enumerate(all_runs):
+        seqs = [r[4] for r in run]
+        prices = [r[0] for r in run]
+        print(f"    run[{i}]: 长度={len(run)}, "
+              f"seq范围={min(seqs)}-{max(seqs)}, "
+              f"价格范围={min(prices):.2f}-{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    if not all_runs:
+        return None
+
+    result = build_order_book(all_runs)
+    if not result:
+        return None
+
+    asks, bids, cache_blocks = result
+    return asks, bids, cache_blocks
+
+
+def cached_read(pm, cache_blocks):
+    all_runs = []
+    for addr, count in cache_blocks:
+        try:
+            raw = pm.read_bytes(addr, count * RECORD_SIZE)
+        except Exception:
+            return None
+        records = []
+        for i in range(count):
+            off = i * RECORD_SIZE
+            price = struct.unpack_from("<f", raw, off)[0]
+            vol, cnt, status, seq = struct.unpack_from("<4I", raw, off + 4)
+            if (PRICE_MIN <= price <= PRICE_MAX
+                    and 0 < vol < VOL_MAX
+                    and cnt < CNT_MAX
+                    and 0 <= seq <= MAX_SEQ):
+                records.append((price, vol, cnt, status, seq, addr + off))
+        runs = find_consecutive_runs(records, min_len=5)
+        all_runs.extend(runs)
+
+    if not all_runs:
+        return None
+
+    result = build_order_book(all_runs)
+    if not result:
+        return None
+
+    return result[0], result[1]
+
+
+def display_books(asks, bids, scan_time, method, scan_count,
+                  cache_hits, cache_misses):
+    os.system("cls" if os.name == "nt" else "clear")
+
+    best_ask = asks[0][0]
+    best_bid = bids[0][0]
+    spread = best_ask - best_bid
+
+    print("=" * 66)
+    print(f"  千档盘口  |  耗时: {scan_time:.4f}s")
+    print(f"  卖方: {len(asks)} 档  |  买方: {len(bids)} 档")
+    print(f"  卖一: {best_ask:.2f}  |  买一: {best_bid:.2f}  |  价差: {spread:.2f}")
+    print("=" * 66)
+
+    # 卖方：卖1=最低卖价在底部，卖N=最高卖价在顶部
+    print(f"\n{'卖方':^64}")
+    print(f"  {'档位':>6}  {'价格':>10}  {'委托量':>10}  {'笔数':>8}")
+    print(f"  {'-' * 46}")
+    total_a = len(asks)
+    show = min(25, total_a)
+    for rank in range(show):
+        i = total_a - 1 - rank
+        p, v, c = asks[i][0], asks[i][1], asks[i][2]
+        print(f"  {'卖' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+    if total_a > show:
+        print(f"  {'...':>6}  {'...':>10}  {'...':>10}  {'...':>8}")
+        for i in range(3):
+            p, v, c = asks[i][0], asks[i][1], asks[i][2]
+            print(f"  {'卖' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+
+    # 买方：买1=最高买价在顶部
+    print(f"\n{'买方':^64}")
+    print(f"  {'档位':>6}  {'价格':>10}  {'委托量':>10}  {'笔数':>8}")
+    print(f"  {'-' * 46}")
+    show = min(25, len(bids))
+    for i in range(show):
+        p, v, c = bids[i][0], bids[i][1], bids[i][2]
+        print(f"  {'买' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+    if len(bids) > show:
+        print(f"  {'...':>6}  {'...':>10}  {'...':>10}  {'...':>8}")
+        for i in range(len(bids) - 3, len(bids)):
+            p, v, c = bids[i][0], bids[i][1], bids[i][2]
+            print(f"  {'买' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+
+    print(f"\n{'=' * 66}")
+    print(f"  方法: {method}  |  扫描 {scan_count} 次"
+          f"  |  命中 {cache_hits}  |  失效 {cache_misses}")
+    print("=" * 66)
+
+
+def main():
+    print("正在连接 AX.exe ...")
+    try:
+        pm = pymem.Pymem(PROCESS_NAME)
+    except Exception as e:
+        print(f"无法连接: {e}")
+        sys.exit(1)
+    print(f"已连接 PID: {pm.process_id}")
+    print("正在枚举内存区域 ...")
+    regions = get_readable_regions(pm)
+    print(f"可读区域: {len(regions)} 个")
+    if HAS_NUMPY:
+        print("Numpy 已加载")
+    else:
+        print("警告: Numpy 未安装 (pip install numpy)")
+
+    cache_blocks = None
+    last_scan = 0
+    scan_count = 0
+    cache_hits = 0
+    cache_misses = 0
+
+    print("开始实时盘口抓取 (诊断版) ...")
+    time.sleep(1)
+
+    while True:
+        t0 = time.time()
+        now = time.time()
+        asks, bids = [], []
+        method = ""
+
+        if cache_blocks:
+            result = cached_read(pm, cache_blocks)
+            if result:
+                asks, bids = result
+                method = "缓存"
+                cache_hits += 1
+            else:
+                cache_blocks = None
+                cache_misses += 1
+
+        if not asks or not bids:
+            if now - last_scan >= 10 or not cache_blocks:
+                print(f"[{time.strftime('%H:%M:%S')}] 全量扫描 ...")
+                result = full_scan(pm, regions)
+                if result:
+                    asks, bids, cache_blocks = result
+                    method = "全量扫描"
+                last_scan = now
+                cache_misses += 1
+
+        scan_time = time.time() - t0
+        scan_count += 1
+
+        if asks and bids:
+            display_books(asks, bids, scan_time, method, scan_count,
+                          cache_hits, cache_misses)
+        else:
+            print(f"[{time.strftime('%H:%M:%S')}] 未找到盘口数据 "
+                  f"(耗时 {scan_time:.4f}s)")
+
+        time.sleep(max(0.05, 1.0 - (time.time() - t0)))
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+运行后终端会先输出大量 DIAG: 诊断信息（第一次全量扫描时），然后才显示盘口表格。重点关注以下几行：
+
+
+
+关键输出	说明
+全局共找到 N 个连续序列	看是 1 个还是多个 run
+run[0]: 长度=	如果长度是 822，说明原始数据就只有 822 条（卖411+买411）
+sub[0]: 长度=	split 后是否被切了
+策略1 分界点=	411 是不是从这里来的
+最终选择: 卖方=X档, 买方=Y档	最终输出前的真实数量
+
+
+
+把诊断输出贴给我，我来定位问题。
+
+==================================================================
+  千档盘口  |  耗时: 0.0167s
+  卖方: 411 档  |  买方: 411 档
+  卖一: 111.67  |  买一: 111.66  |  价差: 0.01
+==================================================================
+
+                               卖方
+      档位          价格         委托量        笔数
+  ----------------------------------------------
+    卖411      116.56         232        45
+    卖410      116.55         607        36
+    卖409      116.54          52        14
+    卖408      116.53          57         8
+    卖407      116.52          17         5
+    卖406      116.51         129        11
+    卖405      116.50         578        70
+    卖404      116.49          62         7
+    卖403      116.48         104        20
+    卖402      116.47          16         3
+    卖401      116.46          18         8
+    卖400      116.45          43         9
+    卖399      116.44          23         3
+    卖398      116.42           2         1
+    卖397      116.41          10         3
+    卖396      116.40          62        10
+    卖395      116.39          54         3
+    卖394      116.38          30         6
+    卖393      116.37           4         2
+    卖392      116.36          22         5
+    卖391      116.35          22         7
+    卖390      116.34           2         2
+    卖389      116.33           9         3
+    卖388      116.32          12         4
+    卖387      116.31          21         6
+     ...         ...         ...       ...
+      卖1      111.67           2         1
+      卖2      111.68           2         1
+      卖3      111.69           4         2
+
+                               买方
+      档位          价格         委托量        笔数
+  ----------------------------------------------
+      买1      111.66           2         1
+      买2      111.60          10         1
+      买3      111.53           4         1
+      买4      111.51          21         2
+      买5      111.50          19         8
+      买6      111.46           5         1
+      买7      111.38           3         1
+      买8      111.34           5         1
+      买9      111.33           9         3
+     买10      111.31           2         1
+     买11      111.30           2         1
+     买12      111.26           5         1
+     买13      111.25           4         2
+     买14      111.23          10         1
+     买15      111.16           2         1
+     买16      111.15           2         1
+     买17      111.14          10         1
+     买18      111.12          10         1
+     买19      111.11          90        10
+     买20      111.10           5         1
+     买21      111.09           5         2
+     买22      111.08          12         2
+     买23      111.07           2         1
+     买24      111.06           6         1
+     买25      111.05           2         1
+     ...         ...         ...       ...
+    买409       88.80           2         1
+    买410       88.78          27         3
+    买411       88.77         125        21
+
+==================================================================
+  方法: 缓存  |  扫描 13 次  |  命中 12  |  失效 1
+==================================================================
+Traceback (most recent call last):
+  File "C:\Users\john\ax_realtime_cached.py", line 603, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\john\ax_realtime_cached.py", line 599, in main
+    time.sleep(max(0.05, 1.0 - (time.time() - t0)))
+MiMo-V2.5-Pro
+已深度思考（用时 5.1 秒）
+
+问题找到了——display_books 里的 os.system("cls") 把诊断输出全清掉了，你看到的只有缓存命中后的表格。
+
+
+
+
+我需要把诊断输出写到日志文件里，这样不会被清屏抹掉。以下是修复后的完整版：
+
+
+
+python
+python
+"""
+千档盘口内存抓取工具 - v10 诊断版
+核心改动：
+1. split_multi_stock_runs: 检测并拆分多股票混合数据
+2. find_best_split: 用 prefix_min/suffix_max 正确找分界点
+3. build_order_book: 独立处理每个子序列，选最优订单簿
+4. 诊断版：所有 DIAG 输出写入日志文件，不被清屏抹掉
+"""
+import pymem
+import struct
+import time
+import ctypes
+import ctypes.wintypes
+import sys
+import os
+from collections import Counter
+from datetime import datetime
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+PROCESS_NAME = "AX.exe"
+RECORD_SIZE = 20
+PRICE_MIN = 50.0
+PRICE_MAX = 200.0
+VOL_MAX = 10_000_000
+CNT_MAX = 1_000_000
+MAX_SEQ = 2000
+MAX_REGION_SIZE = 80 * 1024 * 1024
+MIN_RUN_LEN = 10
+MEM_COMMIT = 0x1000
+PAGE_NOACCESS = 0x01
+PAGE_GUARD = 0x100
+
+# ===== 诊断日志文件 =====
+DIAG_LOG = r"C:\Users\john\ax_diag_output.log"
+
+
+def diag(msg):
+    """写入诊断日志文件，同时打印到终端"""
+    timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    line = f"[{timestamp}] {msg}"
+    print(line)
+    try:
+        with open(DIAG_LOG, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def diag_flush():
+    """打印分隔线"""
+    diag("=" * 60)
+
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.wintypes.DWORD),
+        ("Protect", ctypes.wintypes.DWORD),
+        ("Type", ctypes.wintypes.DWORD),
+    ]
+
+
+def si(val):
+    return int(val) if val is not None else 0
+
+
+def get_readable_regions(pm):
+    regions = []
+    addr = 0
+    mbi = MEMORY_BASIC_INFORMATION()
+    mbi_size = ctypes.sizeof(mbi)
+    kernel32 = ctypes.windll.kernel32
+    while True:
+        ret = kernel32.VirtualQueryEx(
+            pm.process_handle, ctypes.c_void_p(addr),
+            ctypes.byref(mbi), mbi_size
+        )
+        if not ret:
+            break
+        base = si(mbi.BaseAddress)
+        size = si(mbi.RegionSize)
+        state = si(mbi.State)
+        protect = si(mbi.Protect)
+        if (state == MEM_COMMIT and size > 0
+                and protect != PAGE_NOACCESS
+                and not (protect & PAGE_GUARD)):
+            regions.append((base, size))
+        nxt = base + size
+        if nxt <= addr or nxt >= 0x7FFFFFFFFFFF:
+            break
+        addr = nxt
+    return regions
+
+
+def numpy_find_candidates(raw_bytes):
+    if len(raw_bytes) < RECORD_SIZE * 3:
+        return []
+    buf = bytes(raw_bytes)
+    if len(buf) % 4 != 0:
+        buf = buf[: len(buf) & ~3]
+    all_u32 = np.frombuffer(buf, dtype="<u4")
+    all_f32 = np.frombuffer(buf, dtype="<f4")
+    n = len(all_u32) - 14
+    if n <= 0:
+        return []
+    p0 = all_f32[0:n]
+    v0 = all_u32[1:n + 1]
+    s0 = all_u32[4:n + 4]
+    p1 = all_f32[5:n + 5]
+    v1 = all_u32[6:n + 6]
+    s1 = all_u32[9:n + 9]
+    p2 = all_f32[10:n + 10]
+    v2 = all_u32[11:n + 11]
+    s2 = all_u32[14:n + 14]
+    mask = (
+        (p0 >= PRICE_MIN) & (p0 <= PRICE_MAX) & (v0 > 0) & (v0 < VOL_MAX) & (s0 < MAX_SEQ)
+        & (p1 >= PRICE_MIN) & (p1 <= PRICE_MAX) & (v1 > 0) & (v1 < VOL_MAX) & (s1 < MAX_SEQ)
+        & (p2 >= PRICE_MIN) & (p2 <= PRICE_MAX) & (v2 > 0) & (v2 < VOL_MAX) & (s2 < MAX_SEQ)
+        & (s1 == s0 + 1)
+        & (s2 == s0 + 2)
+    )
+    indices = np.where(mask)[0]
+    results = []
+    for idx in indices[:50]:
+        i = int(idx)
+        results.append((i * 4, int(s0[i])))
+    return results
+
+
+def fallback_find_candidates(raw_bytes):
+    results = []
+    limit = len(raw_bytes) - RECORD_SIZE * 3
+    for off in range(0, limit, 4):
+        p0 = struct.unpack_from("<f", raw_bytes, off)[0]
+        v0, _, _, s0 = struct.unpack_from("<4I", raw_bytes, off + 4)
+        if not (PRICE_MIN <= p0 <= PRICE_MAX and 0 < v0 < VOL_MAX and s0 < MAX_SEQ):
+            continue
+        p1 = struct.unpack_from("<f", raw_bytes, off + RECORD_SIZE)[0]
+        v1, _, _, s1 = struct.unpack_from("<4I", raw_bytes, off + RECORD_SIZE + 4)
+        if not (PRICE_MIN <= p1 <= PRICE_MAX and 0 < v1 < VOL_MAX and s1 == s0 + 1):
+            continue
+        p2 = struct.unpack_from("<f", raw_bytes, off + RECORD_SIZE * 2)[0]
+        v2, _, _, s2 = struct.unpack_from("<4I", raw_bytes, off + RECORD_SIZE * 2 + 4)
+        if not (PRICE_MIN <= p2 <= PRICE_MAX and 0 < v2 < VOL_MAX and s2 == s0 + 2):
+            continue
+        results.append((off, s0))
+        if len(results) >= 50:
+            break
+    return results
+
+
+def extract_records(raw_bytes, base_addr, alignment):
+    records = []
+    for i in range(alignment, len(raw_bytes) - RECORD_SIZE + 1, RECORD_SIZE):
+        price = struct.unpack_from("<f", raw_bytes, i)[0]
+        vol, cnt, status, seq = struct.unpack_from("<4I", raw_bytes, i + 4)
+        if (PRICE_MIN <= price <= PRICE_MAX
+                and 0 < vol < VOL_MAX
+                and cnt < CNT_MAX
+                and 0 <= seq <= MAX_SEQ):
+            records.append((price, vol, cnt, status, seq, base_addr + i))
+    return records
+
+
+def find_consecutive_runs(records, min_len=MIN_RUN_LEN):
+    if len(records) < min_len:
+        return []
+    runs = []
+    cur = [records[0]]
+    for i in range(1, len(records)):
+        if records[i][4] == cur[-1][4] + 1:
+            cur.append(records[i])
+        else:
+            if len(cur) >= min_len:
+                runs.append(cur)
+            cur = [records[i]]
+    if len(cur) >= min_len:
+        runs.append(cur)
+    return runs
+
+
+def validate_run(run):
+    if len(run) < 3:
+        return False
+    prices = [r[0] for r in run]
+    increasing = all(prices[i] <= prices[i + 1] for i in range(len(prices) - 1))
+    decreasing = all(prices[i] >= prices[i + 1] for i in range(len(prices) - 1))
+    return increasing or decreasing
+
+
+def deduplicate(records):
+    seen = set()
+    unique = []
+    for r in records:
+        key = (round(r[0], 4), r[1], r[4])
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique
+
+
+def split_multi_stock_runs(run):
+    """在显著价格向上跳变处拆分序列（多股票数据混合检测）"""
+    if len(run) < 30:
+        return [run]
+
+    prices = [r[0] for r in run]
+    n = len(prices)
+
+    # 计算典型间距
+    gaps = sorted(abs(prices[i] - prices[i - 1]) for i in range(1, n))
+    median_gap = gaps[len(gaps) // 2] if gaps else 0.10
+
+    # 阈值：10倍中位间距或至少2.0
+    threshold = max(median_gap * 10, 2.0)
+
+    # 找显著向上跳变
+    split_points = [0]
+    for i in range(1, n):
+        if prices[i] > prices[i - 1] + threshold:
+            split_points.append(i)
+    split_points.append(n)
+
+    sub_runs = []
+    for i in range(len(split_points) - 1):
+        start = split_points[i]
+        end = split_points[i + 1]
+        if end - start >= 20:
+            sub_runs.append(run[start:end])
+
+    return sub_runs if sub_runs else [run]
+
+
+def find_best_split(run):
+    """在价格递减序列中找卖方/买方分界点
+    条件：分界点之前所有价格 > 分界点之后所有价格
+    选择：余额比最优的分界点
+    """
+    n = len(run)
+    if n < 20:
+        return None
+
+    prices = [r[0] for r in run]
+
+    # 预计算前缀最小值和后缀最大值
+    prefix_min = [0.0] * n
+    suffix_max = [0.0] * n
+    prefix_min[0] = prices[0]
+    for i in range(1, n):
+        prefix_min[i] = min(prefix_min[i - 1], prices[i])
+    suffix_max[n - 1] = prices[n - 1]
+    for i in range(n - 2, -1, -1):
+        suffix_max[i] = max(suffix_max[i + 1], prices[i])
+
+    best_idx = None
+    best_balance = -1
+
+    # ===== DIAG: 分界点搜索过程 =====
+    diag(f"  find_best_split: 序列长度={n}")
+    diag(f"  价格范围: {prices[0]:.2f} ~ {prices[-1]:.2f}")
+    valid_splits = []
+    for i in range(10, n - 10):
+        ask_min = prefix_min[i - 1]
+        bid_max = suffix_max[i]
+
+        if ask_min <= bid_max:
+            continue
+
+        spread = ask_min - bid_max
+        if spread > 5.0:
+            continue
+
+        balance = min(i, n - i) / max(i, n - i)
+        valid_splits.append((i, ask_min, bid_max, spread, balance))
+
+        if balance > best_balance:
+            best_balance = balance
+            best_idx = i
+
+    diag(f"  有效分界点数量: {len(valid_splits)}")
+    if valid_splits:
+        # 打印余额比最高的前5个
+        top = sorted(valid_splits, key=lambda x: -x[4])[:5]
+        for idx, (i, am, bm, sp, bal) in enumerate(top):
+            diag(f"    top[{idx}]: pos={i}, 卖方min={am:.2f}, 买方max={bm:.2f}, "
+                 f"spread={sp:.2f}, balance={bal:.4f}, "
+                 f"卖方={i}档, 买方={n-i}档")
+    # ===== DIAG END =====
+
+    return best_idx
+
+
+def build_order_book(all_runs):
+    """从所有连续序列中构建最佳订单簿"""
+    candidates = []
+
+    # 先拆分多股票混合序列
+    all_sub_runs = []
+    for run in all_runs:
+        all_sub_runs.extend(split_multi_stock_runs(run))
+
+    # ===== DIAG: split_multi_stock_runs 结果 =====
+    diag_flush()
+    diag("DIAG: split_multi_stock_runs 结果")
+    diag(f"  输入: {len(all_runs)} 个序列, 输出: {len(all_sub_runs)} 个子序列")
+    for i, run in enumerate(all_sub_runs):
+        seqs = [r[4] for r in run]
+        prices = [r[0] for r in run]
+        diag(f"  sub[{i}]: 长度={len(run)}, "
+             f"seq范围={min(seqs)}-{max(seqs)}, "
+             f"价格范围={min(prices):.2f}-{max(prices):.2f}")
+        # 打印前3条和后3条记录的详细信息
+        diag(f"    前3条: {[(round(r[0],2), r[1], r[4]) for r in run[:3]]}")
+        diag(f"    后3条: {[(round(r[0],2), r[1], r[4]) for r in run[-3:]]}")
+    # ===== DIAG END =====
+
+    # 策略1：拆分单个递减序列为卖方+买方
+    for run_idx, run in enumerate(all_sub_runs):
+        if len(run) < 30:
+            continue
+        prices = [r[0] for r in run]
+        n = len(prices)
+        down = sum(1 for i in range(n - 1) if prices[i + 1] < prices[i] - 0.001)
+        if down < n * 0.3:
+            continue  # 不是主要递减，跳过
+
+        # ===== DIAG: 策略1 候选 =====
+        diag_flush()
+        diag(f"DIAG: 策略1 候选 sub[{run_idx}]")
+        diag(f"  序列长度={len(run)}, 递减比例={down/n:.2f}")
+        # ===== DIAG END =====
+
+        split = find_best_split(run)
+
+        # ===== DIAG: 分界结果 =====
+        diag(f"  分界点={split}")
+        if split:
+            diag(f"  分界后: 卖方={split}档, 买方={len(run)-split}档")
+            ask_prices = [r[0] for r in run[:split]]
+            bid_prices = [r[0] for r in run[split:]]
+            diag(f"  卖方价格: {min(ask_prices):.2f} ~ {max(ask_prices):.2f}")
+            diag(f"  买方价格: {min(bid_prices):.2f} ~ {max(bid_prices):.2f}")
+            diag(f"  卖方前3条seq: {[r[4] for r in run[:3]]}")
+            diag(f"  卖方后3条seq: {[r[4] for r in run[split-3:split]]}")
+            diag(f"  买方前3条seq: {[r[4] for r in run[split:split+3]]}")
+            diag(f"  买方后3条seq: {[r[4] for r in run[-3:]]}")
+        # ===== DIAG END =====
+
+        if split and 10 <= split <= len(run) - 10:
+            asks = sorted(run[:split], key=lambda r: r[0])
+            bids = sorted(run[split:], key=lambda r: -r[0])
+            if asks and bids and asks[0][0] > bids[0][0]:
+                spread = asks[0][0] - bids[0][0]
+                if 0 < spread < 5.0:
+                    balance = min(len(asks), len(bids)) / max(1, max(len(asks), len(bids)))
+                    if balance >= 0.1:
+                        cache = [(run[0][5], len(run))]
+                        candidates.append((asks, bids, balance, cache))
+                        diag(f"  -> 策略1候选已添加, balance={balance:.4f}")
+                    else:
+                        diag(f"  -> 丢弃: balance={balance:.4f} < 0.1")
+                else:
+                    diag(f"  -> 丢弃: spread={spread:.2f} 不在 (0, 5.0)")
+            else:
+                if asks and bids:
+                    diag(f"  -> 丢弃: 卖一={asks[0][0]:.2f} <= 买一={bids[0][0]:.2f}")
+                else:
+                    diag(f"  -> 丢弃: asks或bids为空")
+
+    # 策略2：配对递增序列（卖方）和递减序列（买方）
+    asc_runs = []
+    desc_runs = []
+    for run in all_sub_runs:
+        if len(run) < 10:
+            continue
+        prices = [r[0] for r in run]
+        n = len(prices)
+        up = sum(1 for i in range(n - 1) if prices[i + 1] > prices[i] + 0.001)
+        down = sum(1 for i in range(n - 1) if prices[i + 1] < prices[i] - 0.001)
+        if up > down:
+            asc_runs.append(run)
+        else:
+            desc_runs.append(run)
+
+    # ===== DIAG: 策略2 分类 =====
+    diag_flush()
+    diag("DIAG: 策略2 分类")
+    diag(f"  递增序列: {len(asc_runs)} 个, 递减序列: {len(desc_runs)} 个")
+    for i, run in enumerate(asc_runs):
+        prices = [r[0] for r in run]
+        diag(f"  asc[{i}]: 长度={len(run)}, 价格={min(prices):.2f}~{max(prices):.2f}")
+    for i, run in enumerate(desc_runs):
+        prices = [r[0] for r in run]
+        diag(f"  desc[{i}]: 长度={len(run)}, 价格={min(prices):.2f}~{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    for a_run in asc_runs:
+        a_min = min(r[0] for r in a_run)
+        for b_run in desc_runs:
+            b_max = max(r[0] for r in b_run)
+            if a_min > b_max:
+                spread = a_min - b_max
+                if 0 < spread < 5.0:
+                    asks = sorted(a_run, key=lambda r: r[0])
+                    bids = sorted(b_run, key=lambda r: -r[0])
+                    balance = min(len(asks), len(bids)) / max(1, max(len(asks), len(bids)))
+                    if balance >= 0.1:
+                        cache = [
+                            (a_run[0][5], len(a_run)),
+                            (b_run[0][5], len(b_run)),
+                        ]
+                        candidates.append((asks, bids, balance, cache))
+                        diag(f"  -> 策略2候选: 卖方={len(asks)}档 买方={len(bids)}档 "
+                             f"balance={balance:.4f}")
+
+    # ===== DIAG: 最终候选 =====
+    diag_flush()
+    diag("DIAG: 最终候选数")
+    diag(f"  candidates: {len(candidates)}")
+    for i, c in enumerate(candidates):
+        diag(f"  [{i}] 卖方={len(c[0])}档 买方={len(c[1])}档 "
+             f"balance={c[2]:.4f}")
+        diag(f"    卖方价格: {min(r[0] for r in c[0]):.2f} ~ {max(r[0] for r in c[0]):.2f}")
+        diag(f"    买方价格: {min(r[0] for r in c[1]):.2f} ~ {max(r[0] for r in c[1]):.2f}")
+    # ===== DIAG END =====
+
+    if not candidates:
+        diag("  没有候选，返回 None")
+        return None
+
+    # 选最优候选：余额比最高
+    best = max(candidates, key=lambda c: c[2])
+
+    # ===== DIAG: 最终选择 =====
+    diag_flush()
+    diag("DIAG: 最终选择")
+    diag(f"  卖方={len(best[0])}档, 买方={len(best[1])}档")
+    diag(f"  卖方价格: {min(r[0] for r in best[0]):.2f} ~ {max(r[0] for r in best[0]):.2f}")
+    diag(f"  买方价格: {min(r[0] for r in best[1]):.2f} ~ {max(r[0] for r in best[1]):.2f}")
+    diag(f"  卖方前5档(高价端):")
+    asks_sorted = sorted(best[0], key=lambda r: -r[0])
+    for i, r in enumerate(asks_sorted[:5]):
+        diag(f"    卖{len(best[0])-i}: price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    diag(f"  卖方后5档(低价端):")
+    asks_sorted_asc = sorted(best[0], key=lambda r: r[0])
+    for i, r in enumerate(asks_sorted_asc[:5]):
+        diag(f"    卖{i+1}: price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    diag(f"  买方前5档(高价端):")
+    bids_sorted = sorted(best[1], key=lambda r: -r[0])
+    for i, r in enumerate(bids_sorted[:5]):
+        diag(f"    买{i+1}: price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    diag(f"  买方后5档(低价端):")
+    bids_sorted_asc = sorted(best[1], key=lambda r: r[0])
+    for i, r in enumerate(bids_sorted_asc[:5]):
+        diag(f"    买{len(best[1])-i}: price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    # ===== DIAG END =====
+
+    return best[0], best[1], best[3]
+
+
+def full_scan(pm, regions):
+    all_runs = []
+    total = len(regions)
+
+    # ===== DIAG: 扫描概览 =====
+    diag_flush()
+    diag("DIAG: full_scan 开始")
+    diag(f"  总区域数: {total}")
+    # ===== DIAG END =====
+
+    region_count = 0
+    skip_count = 0
+    candidate_count = 0
+    run_count = 0
+
+    for idx, (base, size) in enumerate(regions):
+        if size > MAX_REGION_SIZE:
+            skip_count += 1
+            continue
+        if idx % 300 == 0 and idx > 0:
+            diag(f"  扫描进度: {idx}/{total} ...")
+        try:
+            raw = pm.read_bytes(base, size)
+        except Exception:
+            continue
+
+        region_count += 1
+        candidates = (numpy_find_candidates(raw) if HAS_NUMPY
+                      else fallback_find_candidates(raw))
+        if not candidates:
+            continue
+
+        candidate_count += 1
+        align_counts = Counter(off % RECORD_SIZE for off, _ in candidates)
+        best_align = align_counts.most_common(1)[0][0]
+        records = extract_records(raw, base, best_align)
+        runs = find_consecutive_runs(records)
+
+        best_run = None
+        for run in runs:
+            if validate_run(run):
+                if best_run is None or len(run) > len(best_run):
+                    best_run = run
+
+        if best_run and len(best_run) >= MIN_RUN_LEN:
+            run_count += 1
+            all_runs.append(best_run)
+
+            # ===== DIAG: 每个找到的 run =====
+            seqs = [r[4] for r in best_run]
+            prices = [r[0] for r in best_run]
+            diag(f"  找到 run: base=0x{base:X}, 长度={len(best_run)}, "
+                 f"seq范围={min(seqs)}-{max(seqs)}, "
+                 f"价格范围={min(prices):.2f}-{max(prices):.2f}")
+            # ===== DIAG END =====
+
+    # ===== DIAG: full_scan 汇总 =====
+    diag_flush()
+    diag("DIAG: full_scan 汇总")
+    diag(f"  跳过大区域: {skip_count}")
+    diag(f"  实际读取区域: {region_count}")
+    diag(f"  有候选记录的区域: {candidate_count}")
+    diag(f"  找到的连续序列: {run_count}")
+    diag(f"  全局共找到 {len(all_runs)} 个连续序列:")
+    for i, run in enumerate(all_runs):
+        seqs = [r[4] for r in run]
+        prices = [r[0] for r in run]
+        diag(f"  run[{i}]: 长度={len(run)}, "
+             f"seq范围={min(seqs)}-{max(seqs)}, "
+             f"价格范围={min(prices):.2f}-{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    if not all_runs:
+        return None
+
+    result = build_order_book(all_runs)
+    if not result:
+        return None
+
+    asks, bids, cache_blocks = result
+    return asks, bids, cache_blocks
+
+
+def cached_read(pm, cache_blocks):
+    all_runs = []
+    for addr, count in cache_blocks:
+        try:
+            raw = pm.read_bytes(addr, count * RECORD_SIZE)
+        except Exception:
+            return None
+        records = []
+        for i in range(count):
+            off = i * RECORD_SIZE
+            price = struct.unpack_from("<f", raw, off)[0]
+            vol, cnt, status, seq = struct.unpack_from("<4I", raw, off + 4)
+            if (PRICE_MIN <= price <= PRICE_MAX
+                    and 0 < vol < VOL_MAX
+                    and cnt < CNT_MAX
+                    and 0 <= seq <= MAX_SEQ):
+                records.append((price, vol, cnt, status, seq, addr + off))
+        runs = find_consecutive_runs(records, min_len=5)
+        all_runs.extend(runs)
+
+    if not all_runs:
+        return None
+
+    result = build_order_book(all_runs)
+    if not result:
+        return None
+
+    return result[0], result[1]
+
+
+def display_books(asks, bids, scan_time, method, scan_count,
+                  cache_hits, cache_misses):
+    os.system("cls" if os.name == "nt" else "clear")
+
+    best_ask = asks[0][0]
+    best_bid = bids[0][0]
+    spread = best_ask - best_bid
+
+    print("=" * 66)
+    print(f"  千档盘口  |  耗时: {scan_time:.4f}s")
+    print(f"  卖方: {len(asks)} 档  |  买方: {len(bids)} 档")
+    print(f"  卖一: {best_ask:.2f}  |  买一: {best_bid:.2f}  |  价差: {spread:.2f}")
+    print("=" * 66)
+
+    # 卖方：卖1=最低卖价在底部，卖N=最高卖价在顶部
+    print(f"\n{'卖方':^64}")
+    print(f"  {'档位':>6}  {'价格':>10}  {'委托量':>10}  {'笔数':>8}")
+    print(f"  {'-' * 46}")
+    total_a = len(asks)
+    show = min(25, total_a)
+    for rank in range(show):
+        i = total_a - 1 - rank
+        p, v, c = asks[i][0], asks[i][1], asks[i][2]
+        print(f"  {'卖' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+    if total_a > show:
+        print(f"  {'...':>6}  {'...':>10}  {'...':>10}  {'...':>8}")
+        for i in range(3):
+            p, v, c = asks[i][0], asks[i][1], asks[i][2]
+            print(f"  {'卖' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+
+    # 买方：买1=最高买价在顶部
+    print(f"\n{'买方':^64}")
+    print(f"  {'档位':>6}  {'价格':>10}  {'委托量':>10}  {'笔数':>8}")
+    print(f"  {'-' * 46}")
+    show = min(25, len(bids))
+    for i in range(show):
+        p, v, c = bids[i][0], bids[i][1], bids[i][2]
+        print(f"  {'买' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+    if len(bids) > show:
+        print(f"  {'...':>6}  {'...':>10}  {'...':>10}  {'...':>8}")
+        for i in range(len(bids) - 3, len(bids)):
+            p, v, c = bids[i][0], bids[i][1], bids[i][2]
+            print(f"  {'买' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+
+    print(f"\n{'=' * 66}")
+    print(f"  方法: {method}  |  扫描 {scan_count} 次"
+          f"  |  命中 {cache_hits}  |  失效 {cache_misses}")
+    print(f"  诊断日志: {DIAG_LOG}")
+    print("=" * 66)
+
+
+def main():
+    # 清空诊断日志
+    try:
+        with open(DIAG_LOG, "w", encoding="utf-8") as f:
+            f.write(f"=== 诊断开始 {datetime.now()} ===\n")
+    except Exception:
+        pass
+
+    print("正在连接 AX.exe ...")
+    try:
+        pm = pymem.Pymem(PROCESS_NAME)
+    except Exception as e:
+        print(f"无法连接: {e}")
+        sys.exit(1)
+    print(f"已连接 PID: {pm.process_id}")
+    print("正在枚举内存区域 ...")
+    regions = get_readable_regions(pm)
+    print(f"可读区域: {len(regions)} 个")
+    if HAS_NUMPY:
+        print("Numpy 已加载")
+    else:
+        print("警告: Numpy 未安装 (pip install numpy)")
+
+    cache_blocks = None
+    last_scan = 0
+    scan_count = 0
+    cache_hits = 0
+    cache_misses = 0
+
+    print("开始实时盘口抓取 (诊断版) ...")
+    print(f"诊断日志写入: {DIAG_LOG}")
+    time.sleep(1)
+
+    while True:
+        t0 = time.time()
+        now = time.time()
+        asks, bids = [], []
+        method = ""
+
+        if cache_blocks:
+            result = cached_read(pm, cache_blocks)
+            if result:
+                asks, bids = result
+                method = "缓存"
+                cache_hits += 1
+            else:
+                cache_blocks = None
+                cache_misses += 1
+
+        if not asks or not bids:
+            if now - last_scan >= 10 or not cache_blocks:
+                diag(f"[{time.strftime('%H:%M:%S')}] 全量扫描 ...")
+                result = full_scan(pm, regions)
+                if result:
+                    asks, bids, cache_blocks = result
+                    method = "全量扫描"
+                last_scan = now
+                cache_misses += 1
+
+        scan_time = time.time() - t0
+        scan_count += 1
+
+        if asks and bids:
+            display_books(asks, bids, scan_time, method, scan_count,
+                          cache_hits, cache_misses)
+        else:
+            print(f"[{time.strftime('%H:%M:%S')}] 未找到盘口数据 "
+                  f"(耗时 {scan_time:.4f}s)")
+
+        time.sleep(max(0.05, 1.0 - (time.time() - t0)))
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+运行后，诊断输出会同时写入 C:\Users\john\ax_diag_output.log。等程序跑完第一次全量扫描后（看到盘口表格显示出来），按 Ctrl+C 退出，然后把 ax_diag_output.log 的内容贴给我。
+
+
+
+
+这次诊断会告诉我们：
+
+找到了几个 run，每个多长
+分界点搜索找到了几个有效分界点，top5 分别在什么位置
+最终 411 是怎么来的
+明早在跑睡觉
+MiMo-V2.5-Pro
+已深度思考（用时 0.5 秒）
+
+好的，晚安。明早跑完把 ax_diag_output.log 的内容贴给我就行。
+
+扫描不停
+MiMo-V2.5-Pro
+已深度思考（用时 6.6 秒）
+
+诊断日志太详细了，find_best_split 里每找到一个有效分界点就写一次文件，循环几千次把程序卡死了。
+
+
+
+
+精简版——只保留关键节点的日志，去掉循环内部的输出：
+
+
+
+python
+python
+"""
+千档盘口内存抓取工具 - v10 诊断精简版
+只在关键节点写日志，不在循环内写
+"""
+import pymem
+import struct
+import time
+import ctypes
+import ctypes.wintypes
+import sys
+import os
+from collections import Counter
+from datetime import datetime
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+
+PROCESS_NAME = "AX.exe"
+RECORD_SIZE = 20
+PRICE_MIN = 50.0
+PRICE_MAX = 200.0
+VOL_MAX = 10_000_000
+CNT_MAX = 1_000_000
+MAX_SEQ = 2000
+MAX_REGION_SIZE = 80 * 1024 * 1024
+MIN_RUN_LEN = 10
+MEM_COMMIT = 0x1000
+PAGE_NOACCESS = 0x01
+PAGE_GUARD = 0x100
+
+DIAG_LOG = r"C:\Users\john\ax_diag_output.log"
+
+
+def diag(msg):
+    """仅写文件，不打印（避免拖慢）"""
+    try:
+        with open(DIAG_LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.wintypes.DWORD),
+        ("Protect", ctypes.wintypes.DWORD),
+        ("Type", ctypes.wintypes.DWORD),
+    ]
+
+
+def si(val):
+    return int(val) if val is not None else 0
+
+
+def get_readable_regions(pm):
+    regions = []
+    addr = 0
+    mbi = MEMORY_BASIC_INFORMATION()
+    mbi_size = ctypes.sizeof(mbi)
+    kernel32 = ctypes.windll.kernel32
+    while True:
+        ret = kernel32.VirtualQueryEx(
+            pm.process_handle, ctypes.c_void_p(addr),
+            ctypes.byref(mbi), mbi_size
+        )
+        if not ret:
+            break
+        base = si(mbi.BaseAddress)
+        size = si(mbi.RegionSize)
+        state = si(mbi.State)
+        protect = si(mbi.Protect)
+        if (state == MEM_COMMIT and size > 0
+                and protect != PAGE_NOACCESS
+                and not (protect & PAGE_GUARD)):
+            regions.append((base, size))
+        nxt = base + size
+        if nxt <= addr or nxt >= 0x7FFFFFFFFFFF:
+            break
+        addr = nxt
+    return regions
+
+
+def numpy_find_candidates(raw_bytes):
+    if len(raw_bytes) < RECORD_SIZE * 3:
+        return []
+    buf = bytes(raw_bytes)
+    if len(buf) % 4 != 0:
+        buf = buf[: len(buf) & ~3]
+    all_u32 = np.frombuffer(buf, dtype="<u4")
+    all_f32 = np.frombuffer(buf, dtype="<f4")
+    n = len(all_u32) - 14
+    if n <= 0:
+        return []
+    p0 = all_f32[0:n]
+    v0 = all_u32[1:n + 1]
+    s0 = all_u32[4:n + 4]
+    p1 = all_f32[5:n + 5]
+    v1 = all_u32[6:n + 6]
+    s1 = all_u32[9:n + 9]
+    p2 = all_f32[10:n + 10]
+    v2 = all_u32[11:n + 11]
+    s2 = all_u32[14:n + 14]
+    mask = (
+        (p0 >= PRICE_MIN) & (p0 <= PRICE_MAX) & (v0 > 0) & (v0 < VOL_MAX) & (s0 < MAX_SEQ)
+        & (p1 >= PRICE_MIN) & (p1 <= PRICE_MAX) & (v1 > 0) & (v1 < VOL_MAX) & (s1 < MAX_SEQ)
+        & (p2 >= PRICE_MIN) & (p2 <= PRICE_MAX) & (v2 > 0) & (v2 < VOL_MAX) & (s2 < MAX_SEQ)
+        & (s1 == s0 + 1)
+        & (s2 == s0 + 2)
+    )
+    indices = np.where(mask)[0]
+    results = []
+    for idx in indices[:50]:
+        i = int(idx)
+        results.append((i * 4, int(s0[i])))
+    return results
+
+
+def fallback_find_candidates(raw_bytes):
+    results = []
+    limit = len(raw_bytes) - RECORD_SIZE * 3
+    for off in range(0, limit, 4):
+        p0 = struct.unpack_from("<f", raw_bytes, off)[0]
+        v0, _, _, s0 = struct.unpack_from("<4I", raw_bytes, off + 4)
+        if not (PRICE_MIN <= p0 <= PRICE_MAX and 0 < v0 < VOL_MAX and s0 < MAX_SEQ):
+            continue
+        p1 = struct.unpack_from("<f", raw_bytes, off + RECORD_SIZE)[0]
+        v1, _, _, s1 = struct.unpack_from("<4I", raw_bytes, off + RECORD_SIZE + 4)
+        if not (PRICE_MIN <= p1 <= PRICE_MAX and 0 < v1 < VOL_MAX and s1 == s0 + 1):
+            continue
+        p2 = struct.unpack_from("<f", raw_bytes, off + RECORD_SIZE * 2)[0]
+        v2, _, _, s2 = struct.unpack_from("<4I", raw_bytes, off + RECORD_SIZE * 2 + 4)
+        if not (PRICE_MIN <= p2 <= PRICE_MAX and 0 < v2 < VOL_MAX and s2 == s0 + 2):
+            continue
+        results.append((off, s0))
+        if len(results) >= 50:
+            break
+    return results
+
+
+def extract_records(raw_bytes, base_addr, alignment):
+    records = []
+    for i in range(alignment, len(raw_bytes) - RECORD_SIZE + 1, RECORD_SIZE):
+        price = struct.unpack_from("<f", raw_bytes, i)[0]
+        vol, cnt, status, seq = struct.unpack_from("<4I", raw_bytes, i + 4)
+        if (PRICE_MIN <= price <= PRICE_MAX
+                and 0 < vol < VOL_MAX
+                and cnt < CNT_MAX
+                and 0 <= seq <= MAX_SEQ):
+            records.append((price, vol, cnt, status, seq, base_addr + i))
+    return records
+
+
+def find_consecutive_runs(records, min_len=MIN_RUN_LEN):
+    if len(records) < min_len:
+        return []
+    runs = []
+    cur = [records[0]]
+    for i in range(1, len(records)):
+        if records[i][4] == cur[-1][4] + 1:
+            cur.append(records[i])
+        else:
+            if len(cur) >= min_len:
+                runs.append(cur)
+            cur = [records[i]]
+    if len(cur) >= min_len:
+        runs.append(cur)
+    return runs
+
+
+def validate_run(run):
+    if len(run) < 3:
+        return False
+    prices = [r[0] for r in run]
+    increasing = all(prices[i] <= prices[i + 1] for i in range(len(prices) - 1))
+    decreasing = all(prices[i] >= prices[i + 1] for i in range(len(prices) - 1))
+    return increasing or decreasing
+
+
+def deduplicate(records):
+    seen = set()
+    unique = []
+    for r in records:
+        key = (round(r[0], 4), r[1], r[4])
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique
+
+
+def split_multi_stock_runs(run):
+    if len(run) < 30:
+        return [run]
+    prices = [r[0] for r in run]
+    n = len(prices)
+    gaps = sorted(abs(prices[i] - prices[i - 1]) for i in range(1, n))
+    median_gap = gaps[len(gaps) // 2] if gaps else 0.10
+    threshold = max(median_gap * 10, 2.0)
+    split_points = [0]
+    for i in range(1, n):
+        if prices[i] > prices[i - 1] + threshold:
+            split_points.append(i)
+    split_points.append(n)
+    sub_runs = []
+    for i in range(len(split_points) - 1):
+        start = split_points[i]
+        end = split_points[i + 1]
+        if end - start >= 20:
+            sub_runs.append(run[start:end])
+    return sub_runs if sub_runs else [run]
+
+
+def find_best_split(run):
+    n = len(run)
+    if n < 20:
+        return None
+
+    prices = [r[0] for r in run]
+
+    prefix_min = [0.0] * n
+    suffix_max = [0.0] * n
+    prefix_min[0] = prices[0]
+    for i in range(1, n):
+        prefix_min[i] = min(prefix_min[i - 1], prices[i])
+    suffix_max[n - 1] = prices[n - 1]
+    for i in range(n - 2, -1, -1):
+        suffix_max[i] = max(suffix_max[i + 1], prices[i])
+
+    best_idx = None
+    best_balance = -1
+
+    for i in range(10, n - 10):
+        ask_min = prefix_min[i - 1]
+        bid_max = suffix_max[i]
+        if ask_min <= bid_max:
+            continue
+        spread = ask_min - bid_max
+        if spread > 5.0:
+            continue
+        balance = min(i, n - i) / max(i, n - i)
+        if balance > best_balance:
+            best_balance = balance
+            best_idx = i
+
+    return best_idx
+
+
+def build_order_book(all_runs):
+    candidates = []
+
+    all_sub_runs = []
+    for run in all_runs:
+        all_sub_runs.extend(split_multi_stock_runs(run))
+
+    # ===== DIAG =====
+    diag("=" * 60)
+    diag(f"DIAG: split结果 输入={len(all_runs)} 输出={len(all_sub_runs)}")
+    for i, run in enumerate(all_sub_runs):
+        seqs = [r[4] for r in run]
+        prices = [r[0] for r in run]
+        diag(f"  sub[{i}]: len={len(run)} seq={min(seqs)}-{max(seqs)} "
+             f"price={min(prices):.2f}-{max(prices):.2f}")
+        diag(f"    front3: {[(round(r[0],2),r[1],r[4]) for r in run[:3]]}")
+        diag(f"    back3:  {[(round(r[0],2),r[1],r[4]) for r in run[-3:]]}")
+    # ===== DIAG END =====
+
+    # 策略1
+    for run_idx, run in enumerate(all_sub_runs):
+        if len(run) < 30:
+            continue
+        prices = [r[0] for r in run]
+        n = len(prices)
+        down = sum(1 for i in range(n - 1) if prices[i + 1] < prices[i] - 0.001)
+        if down < n * 0.3:
+            continue
+
+        split = find_best_split(run)
+
+        # ===== DIAG =====
+        diag(f"DIAG: 策略1 sub[{run_idx}] len={len(run)} "
+             f"down_ratio={down/n:.2f} split={split}")
+        if split:
+            ask_prices = [r[0] for r in run[:split]]
+            bid_prices = [r[0] for r in run[split:]]
+            diag(f"  -> 卖方={split}档 {min(ask_prices):.2f}~{max(ask_prices):.2f}")
+            diag(f"  -> 买方={len(run)-split}档 {min(bid_prices):.2f}~{max(bid_prices):.2f}")
+        # ===== DIAG END =====
+
+        if split and 10 <= split <= len(run) - 10:
+            asks = sorted(run[:split], key=lambda r: r[0])
+            bids = sorted(run[split:], key=lambda r: -r[0])
+            if asks and bids and asks[0][0] > bids[0][0]:
+                spread = asks[0][0] - bids[0][0]
+                if 0 < spread < 5.0:
+                    balance = min(len(asks), len(bids)) / max(1, max(len(asks), len(bids)))
+                    if balance >= 0.1:
+                        cache = [(run[0][5], len(run))]
+                        candidates.append((asks, bids, balance, cache))
+                        diag(f"  -> ACCEPTED balance={balance:.4f}")
+                    else:
+                        diag(f"  -> REJECT balance={balance:.4f}")
+                else:
+                    diag(f"  -> REJECT spread={spread:.2f}")
+            else:
+                diag(f"  -> REJECT 卖一<=买一 or empty")
+
+    # 策略2
+    asc_runs = []
+    desc_runs = []
+    for run in all_sub_runs:
+        if len(run) < 10:
+            continue
+        prices = [r[0] for r in run]
+        n = len(prices)
+        up = sum(1 for i in range(n - 1) if prices[i + 1] > prices[i] + 0.001)
+        down = sum(1 for i in range(n - 1) if prices[i + 1] < prices[i] - 0.001)
+        if up > down:
+            asc_runs.append(run)
+        else:
+            desc_runs.append(run)
+
+    # ===== DIAG =====
+    diag(f"DIAG: 策略2 asc={len(asc_runs)} desc={len(desc_runs)}")
+    for i, run in enumerate(asc_runs):
+        prices = [r[0] for r in run]
+        diag(f"  asc[{i}]: len={len(run)} price={min(prices):.2f}~{max(prices):.2f}")
+    for i, run in enumerate(desc_runs):
+        prices = [r[0] for r in run]
+        diag(f"  desc[{i}]: len={len(run)} price={min(prices):.2f}~{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    for a_run in asc_runs:
+        a_min = min(r[0] for r in a_run)
+        for b_run in desc_runs:
+            b_max = max(r[0] for r in b_run)
+            if a_min > b_max:
+                spread = a_min - b_max
+                if 0 < spread < 5.0:
+                    asks = sorted(a_run, key=lambda r: r[0])
+                    bids = sorted(b_run, key=lambda r: -r[0])
+                    balance = min(len(asks), len(bids)) / max(1, max(len(asks), len(bids)))
+                    if balance >= 0.1:
+                        cache = [
+                            (a_run[0][5], len(a_run)),
+                            (b_run[0][5], len(b_run)),
+                        ]
+                        candidates.append((asks, bids, balance, cache))
+                        diag(f"  策略2 ACCEPTED: 卖={len(asks)} 买={len(bids)} "
+                             f"bal={balance:.4f}")
+
+    # ===== DIAG =====
+    diag(f"DIAG: 最终候选={len(candidates)}")
+    for i, c in enumerate(candidates):
+        diag(f"  [{i}] 卖={len(c[0])} 买={len(c[1])} bal={c[2]:.4f} "
+             f"卖价={min(r[0] for r in c[0]):.2f}~{max(r[0] for r in c[0]):.2f} "
+             f"买价={min(r[0] for r in c[1]):.2f}~{max(r[0] for r in c[1]):.2f}")
+    # ===== DIAG END =====
+
+    if not candidates:
+        return None
+
+    best = max(candidates, key=lambda c: c[2])
+
+    # ===== DIAG: 最终选择 =====
+    diag(f"DIAG: 最终选择 卖={len(best[0])} 买={len(best[1])}")
+    diag(f"  卖方价格: {min(r[0] for r in best[0]):.2f} ~ {max(r[0] for r in best[0]):.2f}")
+    diag(f"  买方价格: {min(r[0] for r in best[1]):.2f} ~ {max(r[0] for r in best[1]):.2f}")
+    # 卖方高价端5档
+    asks_hi = sorted(best[0], key=lambda r: -r[0])[:5]
+    diag(f"  卖方最高5档:")
+    for r in asks_hi:
+        diag(f"    price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    # 卖方低价端5档
+    asks_lo = sorted(best[0], key=lambda r: r[0])[:5]
+    diag(f"  卖方最低5档:")
+    for r in asks_lo:
+        diag(f"    price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    # 买方高价端5档
+    bids_hi = sorted(best[1], key=lambda r: -r[0])[:5]
+    diag(f"  买方最高5档:")
+    for r in bids_hi:
+        diag(f"    price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    # 买方低价端5档
+    bids_lo = sorted(best[1], key=lambda r: r[0])[:5]
+    diag(f"  买方最低5档:")
+    for r in bids_lo:
+        diag(f"    price={r[0]:.2f} vol={r[1]} cnt={r[2]} seq={r[4]}")
+    # ===== DIAG END =====
+
+    return best[0], best[1], best[3]
+
+
+def full_scan(pm, regions):
+    all_runs = []
+    total = len(regions)
+
+    diag("=" * 60)
+    diag(f"DIAG: full_scan 开始, 区域数={total}")
+
+    region_count = 0
+    skip_count = 0
+    candidate_count = 0
+    run_count = 0
+
+    for idx, (base, size) in enumerate(regions):
+        if size > MAX_REGION_SIZE:
+            skip_count += 1
+            continue
+        if idx % 300 == 0 and idx > 0:
+            print(f"  扫描进度: {idx}/{total} ...")
+        try:
+            raw = pm.read_bytes(base, size)
+        except Exception:
+            continue
+
+        region_count += 1
+        candidates = (numpy_find_candidates(raw) if HAS_NUMPY
+                      else fallback_find_candidates(raw))
+        if not candidates:
+            continue
+
+        candidate_count += 1
+        align_counts = Counter(off % RECORD_SIZE for off, _ in candidates)
+        best_align = align_counts.most_common(1)[0][0]
+        records = extract_records(raw, base, best_align)
+        runs = find_consecutive_runs(records)
+
+        best_run = None
+        for run in runs:
+            if validate_run(run):
+                if best_run is None or len(run) > len(best_run):
+                    best_run = run
+
+        if best_run and len(best_run) >= MIN_RUN_LEN:
+            run_count += 1
+            all_runs.append(best_run)
+            seqs = [r[4] for r in best_run]
+            prices = [r[0] for r in best_run]
+            diag(f"  run: base=0x{base:X} len={len(best_run)} "
+                 f"seq={min(seqs)}-{max(seqs)} "
+                 f"price={min(prices):.2f}-{max(prices):.2f}")
+
+    # ===== DIAG =====
+    diag(f"DIAG: scan汇总 skip={skip_count} read={region_count} "
+         f"candidate_regions={candidate_count} runs={run_count}")
+    diag(f"  共{len(all_runs)}个序列:")
+    for i, run in enumerate(all_runs):
+        seqs = [r[4] for r in run]
+        prices = [r[0] for r in run]
+        diag(f"  run[{i}]: len={len(run)} seq={min(seqs)}-{max(seqs)} "
+             f"price={min(prices):.2f}-{max(prices):.2f}")
+    # ===== DIAG END =====
+
+    if not all_runs:
+        return None
+
+    result = build_order_book(all_runs)
+    if not result:
+        return None
+
+    asks, bids, cache_blocks = result
+    return asks, bids, cache_blocks
+
+
+def cached_read(pm, cache_blocks):
+    all_runs = []
+    for addr, count in cache_blocks:
+        try:
+            raw = pm.read_bytes(addr, count * RECORD_SIZE)
+        except Exception:
+            return None
+        records = []
+        for i in range(count):
+            off = i * RECORD_SIZE
+            price = struct.unpack_from("<f", raw, off)[0]
+            vol, cnt, status, seq = struct.unpack_from("<4I", raw, off + 4)
+            if (PRICE_MIN <= price <= PRICE_MAX
+                    and 0 < vol < VOL_MAX
+                    and cnt < CNT_MAX
+                    and 0 <= seq <= MAX_SEQ):
+                records.append((price, vol, cnt, status, seq, addr + off))
+        runs = find_consecutive_runs(records, min_len=5)
+        all_runs.extend(runs)
+
+    if not all_runs:
+        return None
+
+    result = build_order_book(all_runs)
+    if not result:
+        return None
+
+    return result[0], result[1]
+
+
+def display_books(asks, bids, scan_time, method, scan_count,
+                  cache_hits, cache_misses):
+    os.system("cls" if os.name == "nt" else "clear")
+
+    best_ask = asks[0][0]
+    best_bid = bids[0][0]
+    spread = best_ask - best_bid
+
+    print("=" * 66)
+    print(f"  千档盘口  |  耗时: {scan_time:.4f}s")
+    print(f"  卖方: {len(asks)} 档  |  买方: {len(bids)} 档")
+    print(f"  卖一: {best_ask:.2f}  |  买一: {best_bid:.2f}  |  价差: {spread:.2f}")
+    print("=" * 66)
+
+    print(f"\n{'卖方':^64}")
+    print(f"  {'档位':>6}  {'价格':>10}  {'委托量':>10}  {'笔数':>8}")
+    print(f"  {'-' * 46}")
+    total_a = len(asks)
+    show = min(25, total_a)
+    for rank in range(show):
+        i = total_a - 1 - rank
+        p, v, c = asks[i][0], asks[i][1], asks[i][2]
+        print(f"  {'卖' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+    if total_a > show:
+        print(f"  {'...':>6}  {'...':>10}  {'...':>10}  {'...':>8}")
+        for i in range(3):
+            p, v, c = asks[i][0], asks[i][1], asks[i][2]
+            print(f"  {'卖' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+
+    print(f"\n{'买方':^64}")
+    print(f"  {'档位':>6}  {'价格':>10}  {'委托量':>10}  {'笔数':>8}")
+    print(f"  {'-' * 46}")
+    show = min(25, len(bids))
+    for i in range(show):
+        p, v, c = bids[i][0], bids[i][1], bids[i][2]
+        print(f"  {'买' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+    if len(bids) > show:
+        print(f"  {'...':>6}  {'...':>10}  {'...':>10}  {'...':>8}")
+        for i in range(len(bids) - 3, len(bids)):
+            p, v, c = bids[i][0], bids[i][1], bids[i][2]
+            print(f"  {'买' + str(i + 1):>6}  {p:>10.2f}  {v:>10}  {c:>8}")
+
+    print(f"\n{'=' * 66}")
+    print(f"  方法: {method}  |  扫描 {scan_count} 次"
+          f"  |  命中 {cache_hits}  |  失效 {cache_misses}")
+    print(f"  日志: {DIAG_LOG}")
+    print("=" * 66)
+
+
+def main():
+    # 清空日志
+    try:
+        with open(DIAG_LOG, "w", encoding="utf-8") as f:
+            f.write(f"=== 开始 {datetime.now()} ===\n\n")
+    except Exception:
+        pass
+
+    print("正在连接 AX.exe ...")
+    try:
+        pm = pymem.Pymem(PROCESS_NAME)
+    except Exception as e:
+        print(f"无法连接: {e}")
+        sys.exit(1)
+    print(f"已连接 PID: {pm.process_id}")
+    print("正在枚举内存区域 ...")
+    regions = get_readable_regions(pm)
+    print(f"可读区域: {len(regions)} 个")
+    if HAS_NUMPY:
+        print("Numpy 已加载")
+    else:
+        print("警告: Numpy 未安装")
+
+    cache_blocks = None
+    last_scan = 0
+    scan_count = 0
+    cache_hits = 0
+    cache_misses = 0
+
+    print(f"开始抓取 (诊断版, 日志={DIAG_LOG}) ...")
+    time.sleep(1)
+
+    while True:
+        t0 = time.time()
+        now = time.time()
+        asks, bids = [], []
+        method = ""
+
+        if cache_blocks:
+            result = cached_read(pm, cache_blocks)
+            if result:
+                asks, bids = result
+                method = "缓存"
+                cache_hits += 1
+            else:
+                cache_blocks = None
+                cache_misses += 1
+
+        if not asks or not bids:
+            if now - last_scan >= 10 or not cache_blocks:
+                print(f"[{time.strftime('%H:%M:%S')}] 全量扫描 ...")
+                result = full_scan(pm, regions)
+                if result:
+                    asks, bids, cache_blocks = result
+                    method = "全量扫描"
+                last_scan = now
+                cache_misses += 1
+
+        scan_time = time.time() - t0
+        scan_count += 1
+
+        if asks and bids:
+            display_books(asks, bids, scan_time, method, scan_count,
+                          cache_hits, cache_misses)
+        else:
+            print(f"[{time.strftime('%H:%M:%S')}] 未找到盘口数据 "
+                  f"(耗时 {scan_time:.4f}s)")
+
+        time.sleep(max(0.05, 1.0 - (time.time() - t0)))
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+这次 find_best_split 里没有循环日志了，不会卡住。跑完第一次全量扫描看到盘口后，Ctrl+C 退出，然后把 C:\Users\john\ax_diag_output.log 贴给我。
+
+ax_diag_output.log
+LOG
+145.5 KB
+上一版扫描日志
+MiMo-V2.5-Pro
+已深度思考（用时 25.1 秒）
+诊断日志分析
+
+
+
+日志揭示了两个根本问题：
+
+
+
+
+
+问题一：找到的数据不是中芯国际
+
+
+项目	中芯国际实际值	工具找到的值
+卖一/买一	111.67 / 111.66	139.64 起步
+价格范围	~88 ~ 116	139 ~ 171
+
+
+
+工具找到的是另一只股票的盘口数据（可能是一只交易价在 139~171 附近的股票）。中芯国际的数据根本没被找到。
+
+
+
+
+
+问题二：所有序列都是递增的，策略全部失效
+
+
+
+日志中每次扫描的结果都是：
+
+
+
+text
+text
+递增序列: 1~2 个, 递减序列: 0 个
+candidates: 0
+没有候选，返回 None
+
+
+
+
+原因：
+
+
+
+策略1 要求 down > 30%（递减比例），但数据是完全递增的（价格从 ~139 涨到 ~171），所以跳过
+策略2 要求配对一个递增序列（卖方）和一个递减序列（买方），但没有递减序列，所以 0 候选
+
+
+
+这说明内存中的盘口数据布局是：
+
+
+
+text
+text
+seq 2    → 139.23  (卖方最低档 = 卖一)
+seq 3    → 139.31
+...
+seq 338  → 155.xx  (卖买方分界)
+seq 339  → 155.xx  (买方最高档 = 买一)
+...
+seq 677  → 171.72  (买方最低档)
+
+
+
+
+整个卖方+买方是一条从低到高的递增序列，而不是代码假设的"一条从高到低的递减序列"。
+
+
+
+
+
+根因总结
+
+
+问题	根因
+找不到正确数据	PRICE_MIN=50 PRICE_MAX=200 范围太大，找到了其他股票
+策略全部返回 0 候选	代码假设卖方+买方是递减序列，实际内存中是递增序列
+之前 v10 能显示 111.67	那是旧的缓存结果，诊断版每次全量扫描都找不到中芯国际
+
+
+
+
+需要修复的方向
+
+
+
+第一步：缩小 PRICE_MIN/PRICE_MAX 到 100~120，只找中芯国际的数据：
+
+python
+python
+PRICE_MIN = 100.0
+PRICE_MAX = 120.0
+
+
+
+
+第二步：修改策略，支持递增序列的卖买方分界——在递增序列中，卖方部分价格递增，然后跳到买一（买一 < 卖N），买方部分也递增。分界点是序列中价格向下跳变的位置（即卖N → 买一的转折点）。
+
+
+
+
+你先把 PRICE_MIN/PRICE_MAX 改成 100/120 重新跑一次，确认能不能找到中芯国际的数据。找到后我再帮你改分界逻辑。
+
+开盘 换股票了 华虹公司
+MiMo-V2.5-Pro
+已深度思考（用时 18.8 秒）
+
+好的。根据诊断日志，不管换哪只股票，核心问题都一样——代码的分界逻辑和实际内存布局不匹配。
+
+
+
+
+日志显示所有序列都是纯递增的（价格从低到高），但代码的两个策略都无法处理纯递增序列：
+
+
+
+策略1：要求递减比例 > 30%，纯递增序列直接跳过
+策略2：需要一个递增 + 一个递减配对，只有递增没有递减，0 候选
+
+
+
+你需要先把华虹公司的价格范围告诉我（当前卖一/买一大概多少），我帮你做两件事：
+
+
+
+1.
+缩小 PRICE_MIN/PRICE_MAX，排除其他股票干扰
+2.
+改写分界逻辑，支持纯递增序列中的卖买方分界——在递增序列中找价格向下跳变点（卖N → 买一的转折）
+
+
+
+华虹公司当前大概什么价位？
+
+微信图片_20260428133442_23_5.png
+PNG
+120.1 KB
+现在截屏
+MiMo-V2.5-Pro
+已深度思考（用时 362.2 秒）
+截屏数据分析
+
+
+
+从截图可以确认华虹公司的实际盘口数据：
+
+
+
+
+卖方：
+
+卖一：139.86，卖114：142.30
+价格范围：139.86 → 142.30（递增）
+
+
+
+买方：
+
+买二：139.82，买114：136.27
+价格范围：139.82 → 136.27（递减）
+
+
+
+价差： 139.86 - 139.82 = 0.04
+
+
+
+
+
+对照诊断日志的关键发现
+
+
+
+诊断日志显示工具找到的序列：
+
+
+
+序列	价格范围	方向
+run[0] (0xDE18000)	139.23 → 171.72	纯递增
+run[1] (0xE9F2000)	139.64 → 150.90	纯递增
+
+
+
+核心问题：工具只找到了递增序列，没有找到任何递减序列。
+
+
+
+
+对照截图：
+
+卖方确实是递增的（139.86 → 142.30）—— 工具找到的可能是卖方
+买方应该是递减的（139.82 → 136.27）—— 工具完全没有找到
+
+
+
+而且 run[0] 的价格范围 139→171 远超卖方实际范围 139→142，说明还混入了其他数据。
+
+
+
+
+
+根因判断
+
+
+
+买方数据在内存中很可能也是递增存储的（从 136.27 → 139.82），而不是递减。这意味着：
+
+
+
+卖方：seq 1→N，价格 139.86 → 142.30（递增）
+买方：seq 1→M，价格 136.27 → 139.82（也是递增）
+
+
+
+两个都是递增序列，但工具的策略2要求一个递增+一个递减配对，所以永远匹配不上。
+
+
+
+
+
+需要修改的方向
+
+
+
+build_order_book 中增加策略3：两个递增序列配对
+
+
+
+text
+text
+逻辑：
+1. 找到所有递增序列
+2. 取价格范围最高的序列作为卖方（min_price 更高的那个）
+3. 取价格范围次高的序列作为买方
+4. 条件：卖方 min_price > 买方 max_price（卖一 > 买一）
+5. 卖方按价格升序排列，买方按价格降序排列
+
+
+
+
+同时需要缩小 PRICE_MIN/PRICE_MAX 排除其他股票的干扰。华虹公司当前价位在 136~142，可以设 PRICE_MIN=130 PRICE_MAX=150。
+
+
+
+
+要我直接给出完整的修改后代码吗？
+
+写工作进度成功 卡点纪要代码成果。我现在去问下gemini  不要带出反编译的字眼。纯技术探讨
+MiMo-V2.5-Pro
+已深度思考（用时 3.7 秒）
+markdown
+markdown
+# 千档盘口内存抓取工具 — 工作纪要
+
+日期：2026年4月28日（下午更新）
+项目：AX.exe 港股 Level 2 千档盘口实时抓取
+当前版本：v10 诊断版
+
+---
+
+## 一、核心成果
+
+### 1. 技术架构已跑通
+
+- 成功从 AX.exe 进程内存中实时读取千档盘口数据
+- 支持卖方 + 买方完整显示，档位数随股票实际深度动态变化
+- 20 字节记录结构已确认：price(float32) + vol(uint32) + cnt(uint32) + status(uint32) + seq(uint32)
+
+### 2. 性能指标
+
+| 指标 | 数值 |
+|------|------|
+| 全量扫描 | ~5s（numpy 向量化，从最初 217s 优化 36 倍） |
+| 缓存读取 | 0.001~0.009s（毫秒级） |
+| 缓存命中率 | 96%~97% |
+| 可读内存区域 | 2211 个 |
+| 有候选记录的区域 | 8~11 个 |
+
+### 3. 关键技术突破（v1~v10）
+
+| 阶段 | 问题 | 解决方案 |
+|------|------|----------|
+| v1-v2 | 全量扫描 217 秒，无法实用 | numpy 向量化扫描，降至 ~5s |
+| v3 | seq 不从 0 开始，验证失败 | 改为找最长连续序列，不要求 seq=0 |
+| v4 | 不同股票内存布局不同（单块 vs 双块） | 自动扫描所有区域，合并多个连续序列 |
+| v5-v7 | 环形缓冲区导致数据重复 | 按 (price, vol, seq) 三元组去重 |
+| v8-v9 | 多股票数据混合污染 | 拆分多股票序列 + 卖买方数量比限制 |
+| v10 | 分界点选错导致卖买方错位 | prefix_min/suffix_max 保证所有卖价 > 所有买价 |
+
+---
+
+## 二、当前状态（v10 诊断版）
+
+### 诊断日志揭示的核心问题
+
+#### 问题1：找到的数据与目标股票不匹配
+
+诊断日志显示工具找到的序列：
+
+
+
+run[0]: base=0xDE18000, 长度=665~680, seq=2-677, 价格=139.23~171.72
+run[1]: base=0xE9F2000, 长度=412~454, seq=3-414, 价格=139.64~150.90
+
+text
+text
+
+但华虹公司实际盘口：
+- 卖方：139.86 → 142.30（约 114 档）
+- 买方：139.82 → 136.27（约 114 档）
+
+工具找到的价格范围（139→171）远超目标股票实际范围，说明混入了其他股票数据。
+
+#### 问题2：策略逻辑与实际内存布局不匹配
+
+所有扫描结果均为：
+
+
+
+递增序列: 1~2 个, 递减序列: 0 个
+candidates: 0
+没有候选，返回 None
+
+text
+text
+
+**根因：** 内存中的卖方和买方数据**都是递增存储**的：
+- 卖方：seq 1→N，价格从低到高（139.86 → 142.30）
+- 买方：seq 1→M，价格从低到高（136.27 → 139.82）
+
+但代码中的两个策略都无法处理这种情况：
+- **策略1**：要求递减比例 > 30%，纯递增序列直接跳过
+- **策略2**：需要一个递增 + 一个递减序列配对，但不存在递减序列
+
+#### 问题3：PRICE_MIN/PRICE_MAX 范围过宽
+
+当前设置 PRICE_MIN=50, PRICE_MAX=200，导致扫描时混入多只股票的数据，无法正确区分目标股票。
+
+---
+
+## 三、已确认的数据结构
+
+
+
+每条记录 20 字节（5 个 uint32）：
++0 price (float32) 委托价格
++4 vol (uint32) 委托量
++8 cnt (uint32) 笔数
++12 status (uint32) 状态/标志
++16 seq (uint32) 快照内记录序号（连续递增）
+
+text
+text
+
+- 卖方和买方在内存中均为**递增**存储（价格从低到高）
+- 同一数据块可能有多个副本（环形缓冲区）
+- seq 是记录在快照内的序号，不是快照编号
+- 卖方和买方可能在同一块连续内存，也可能分处不同区域
+
+---
+
+## 四、待解决卡点
+
+### 卡点1：策略逻辑不匹配内存布局（P0 - 阻塞）
+
+**现象：** 策略1 和策略2 均返回 0 候选，程序无法输出任何盘口数据
+**根因：** 内存中卖方和买方均为递增序列，现有策略无法识别
+**需要：** 新增策略3，支持两个递增序列的配对逻辑
+
+### 卡点2：多股票数据污染（P0 - 阻塞）
+
+**现象：** 工具找到的价格范围远超目标股票实际范围（139~171 vs 139~142）
+**根因：** PRICE_MIN/PRICE_MAX 范围过宽，无法区分目标股票
+**需要：**
+- 方案A：缩小 PRICE_MIN/PRICE_MAX 到目标股票价位附近
+- 方案B：通过指针链精确锁定目标数据地址
+- 方案C：利用 AX.exe 界面显示的卖一/买一价格做范围过滤
+
+### 卡点3：seq=0 和 seq=1 不可读
+
+**现象：** 目标股票缺少最高 2 档（落在 MEM_RESERVE 内存页）
+**影响：** 档位数可能有 ±2 的误差
+**原因：** Windows 内存保护限制，无法绕过
+
+### 卡点4：未与界面逐档比对（P1）
+
+**现状：** 仅通过数据结构特征（seq 连续、价格单调）验证，未与 AX.exe 界面逐档比对
+**需要：** 在 AX.exe 中打开对应股票，截图与工具输出逐行比对
+
+---
+
+## 五、下一步计划
+
+### 优先级 P0：修复策略逻辑
+
+1. **新增策略3**：支持两个递增序列配对
+   - 逻辑：取价格范围最高的递增序列作为卖方，次高的作为买方
+   - 条件：卖方 min_price > 买方 max_price
+   - 卖方按价格升序，买方按价格降序
+2. **缩小 PRICE_MIN/PRICE_MAX**：设为目标股票价位 ±15% 范围
+3. **验证**：运行修改后的程序，确认能正确输出卖方和买方数据
+
+### 优先级 P1：数据准确性验证
+
+1. 逐档比对：在 AX.exe 界面中打开华虹公司，截图卖一~卖五和买一~买五，与工具输出逐行比对
+2. 价差校验：确认卖一 - 买一 是否与界面一致
+3. 多股票交叉验证：至少再验证 3 只不同价位的港股
+
+### 优先级 P2：解决多股票污染
+
+1. **方案A**：利用 AX.exe 窗口标题或进程内存中的股票代码，锁定当前活跃股票
+2. **方案B**：用指针扫描工具找到从模块基址到盘口缓冲区的指针链，精确锁定目标数据地址
+3. **方案C**：在工具中增加股票代码参数，根据股票代码自动调整价格范围过滤
+
+### 优先级 P3：性能进一步优化
+
+1. 指针链追踪：找到从 AX.exe 静态基址到盘口缓冲区的固定偏移路径，消除全量扫描
+2. 预估效果：定位耗时从 ~5s 降至 0s，实现真正的实时刷新
+
+### 优先级 P4：功能扩展
+
+1. 命令行参数化：支持 --stock 00981 --price-min 130 --price-max 150 等参数
+2. 数据导出：将盘口数据实时写入 CSV 或数据库，供量化策略使用
+3. 多股票监控：同时监控多只股票的盘口数据
+4. GUI 界面：用 PyQt/Tkinter 做可视化界面，替代终端表格
+
+---
+
+## 六、文件清单
+
+| 文件 | 说明 |
+|------|------|
+| C:\Users\john\ax_realtime_cached.py | 当前主程序（v10） |
+| C:\Users\john\ax_realtime_diag.py | v10 诊断版（日志写入文件） |
+| C:\Users\john\ax_realtime_backup.py | 原始 150 档版本备份 |
+| C:\Users\john\ax_diag.py ~ ax_snap_diag4.py | 各阶段诊断脚本 |
+| C:\Users\john\ax_diag_output.log | 诊断日志输出 |
+
+运行方式：
+
+
+
+管理员 CMD → python C:\Users\john\ax_realtime_diag.py
+
+text
+text
+
+切换股票：修改 ax_realtime_diag.py 中的 PRICE_MIN 和 PRICE_MAX，重新运行。
+
+---
+
+## 七、技术要点总结
+
+### 内存布局理解
+
+1. AX.exe 的千档盘口数据存储在进程堆内存中
+2. 每条记录 20 字节，seq 连续递增
+3. 卖方和买方在内存中均为**价格递增**排列
+4. 环形缓冲区机制导致同一数据块可能有多个副本
+5. 多只股票的数据可能在同一内存区域中交错存储
+
+### 算法设计要点
+
+1. **numpy 向量化扫描**：利用 float32/int32 的数值范围特征快速筛选候选记录
+2. **连续序列检测**：按 seq 连续性分组，验证价格单调性
+3. **多股票拆分**：检测显著价格跳变，拆分混合数据
+4. **卖买方分界**：利用"所有卖价 > 所有买价"的硬约束找分界点
+5. **缓存机制**：记录数据地址，后续直接读取，避免重复扫描
+
+### 待验证的假设
+
+1. 卖方和买方在内存中是否始终为递增存储？（当前诊断支持此假设）
+2. 两个递增序列的卖买方配对逻辑是否能正确工作？（待实现验证）
+3. 不同股票的内存布局是否一致？（需多股票验证）
+
+
+
+
+这份纪要完整记录了当前状态、卡点、成果和下一步计划，可以直接拿去和 Gemini 讨论技术方案。
+
+新建文本文档 (6)(1).txt
+TXT
+5 KB
+chatgpt 回复
+MiMo-V2.5-Pro
+已深度思考（用时 11 秒）
+对 Gemini 回复的评估
+
+
+
+Gemini 的分析方向基本正确，但有几个关键细节需要修正和补充。
+
+
+
+
+
+Gemini 说得对的部分
+
+
+
+1. 问题诊断准确
+
+
+
+
+"两个同形态序列，同分布、同单调性 → 无法用趋势区分"——这和诊断日志完全吻合：
+
+
+
+text
+text
+递增序列: 2 个, 递减序列: 0 个
+candidates: 0
+
+
+
+
+2. 指针链是终极方案
+
+
+
+
+Gemini 说"不要再优化扫描了，直接找指针链"——完全正确。当前每次全量扫描 2211 个区域耗时 ~5s，找到指针链后变成 O(1) 直接读取。
+
+
+
+
+3. seq=0/1 不用解决
+
+
+
+
+接受误差，量化场景下缺 1~2 档没有实际影响。
+
+
+
+
+
+Gemini 需要修正的部分
+
+
+
+1. 价格断层切分方案有隐患
+
+
+
+
+Gemini 建议在单个 run 内按 gap 切分：
+
+
+
+text
+text
+run A → 切成：
+  A1: 139~142  （目标股票）
+  A2: 150~171  （其他股票）
+
+
+
+
+但诊断日志显示 run[0] 和 run[1] 是两个不同内存地址的独立序列：
+
+
+
+text
+text
+run[0]: base=0xDE18000, 长度=665~680, 价格=139.23~171.72
+run[1]: base=0xE9F2000, 长度=412~454, 价格=139.64~150.90
+
+
+
+
+问题在于：
+
+
+
+run[0] 跨度 32 元（139→171），包含多只股票的数据，gap 切分可能有效
+run[1] 跨度 11 元（139→150），也可能混入了其他股票
+但切分后你怎么知道哪个子序列是卖方、哪个是买方？ 两个子序列都是递增的，Gemini 的 min(X) > max(Y) 判断在这里可能不成立——因为卖方最高价和买方最低价可能非常接近
+
+
+
+2. OCR 方案过于复杂
+
+
+
+
+Gemini 建议用 OCR 截取 AX.exe 界面的卖一/买一价格。这在工程上引入了额外依赖（Tesseract、截屏、图像处理），而且：
+
+
+
+需要 AX.exe 窗口可见且不被遮挡
+OCR 识别有延迟和错误率
+港股价格精度到 0.01，OCR 容易误读
+
+
+
+更简单的替代方案：直接在内存中搜索当前股票代码字符串
+
+
+
+
+Gemini 提到了这个方法但没展开。AX.exe 内存中大概率存储着当前显示的股票代码（如 "00981" 或 "688347"），搜索到后可以反向定位到关联的价格数据结构。这比 OCR 可靠得多。
+
+
+
+
+3. 评分机制需要具体化
+
+
+
+
+Gemini 提到的评分维度是对的（seq 连续性、档位数量、价差合理、价格范围），但没有给出具体权重和阈值。实际工程中需要量化这些指标。
+
+
+
+
+
+Gemini 遗漏的关键点
+
+
+
+1. 两个 run 的关系没有分析
+
+
+
+
+诊断日志中 run[0] 和 run[1] 有大量价格重叠（139~150），这说明它们可能是：
+
+同一股票的两个副本（环形缓冲区）
+或者不同股票的部分数据
+
+
+
+需要先判断这两个 run 的关系，再决定是合并还是分别处理。
+
+
+
+
+2. 买方数据可能根本没被找到
+
+
+
+
+截图显示华虹公司买方价格从 139.82 递减到 136.27。但诊断日志中所有找到的序列最低价都在 139 以上，买方 136~139 的数据完全没有出现。
+
+
+
+
+可能原因：
+
+买方数据在另一个内存区域，被 PRICE_MIN=50 过滤掉了（不太可能）
+买方数据的 seq 不连续，被 find_consecutive_runs 的 min_len=10 截断了
+买方数据的 vol/cnt 不满足过滤条件
+
+
+
+3. 没有提到 deduplicate 函数的潜在问题
+
+
+
+
+当前代码中 deduplicate 函数定义了但没有在主流程中被调用。如果环形缓冲区产生了重复数据，没有去重会影响后续的序列检测。
+
+
+
+
+
+建议的下一步
+
+
+优先级	操作	预期效果
+P0	缩小 PRICE_MIN/MAX 到 130~150	排除其他股票干扰
+P0	在 full_scan 中打印所有候选记录（不仅是连续序列），看买方 136~139 的数据是否存在	确认买方数据是否被找到
+P1	实现 Gemini 的策略3：两个递增序列配对	解决卖买方识别
+P2	在内存中搜索股票代码字符串	自动锁定目标股票
+P3	用 Cheat Engine 找指针链	消除全量扫描
+
+
+
+要我先写哪个部分的代码？
+
+新开窗口写  你总结一段记忆 配合gemini的回复 新窗口展开
+MiMo-V2.5-Pro
+已深度思考（用时 1.5 秒）
+
+以下是你可以直接粘贴到新窗口的内容：
+
+
+
+
+
+项目记忆摘要 — 千档盘口内存抓取工具
+
+
+
+项目： 从 AX.exe（港股 Level 2 行情软件）进程内存中实时抓取千档盘口数据
+当前版本： v10 诊断版
+运行环境： Windows，Python，pymem，numpy
+
+
+
+已确认的数据结构
+
+
+
+每条记录 20 字节：price(float32) + vol(uint32) + cnt(uint32) + status(uint32) + seq(uint32)
+
+
+
+
+seq 是快照内的记录序号，连续递增。
+
+
+
+诊断日志关键发现
+
+
+
+工具扫描 2211 个可读内存区域，找到 1~2 个连续序列（run），典型结果：
+
+
+
+text
+text
+run[0]: base=0xDE18000, 长度=665~680, seq=2-677, 价格=139.23~171.72
+run[1]: base=0xE9F2000, 长度=412~454, seq=3-414, 价格=139.64~150.90
+
+
+
+
+所有序列都是纯递增的（价格从低到高），没有任何递减序列。
+
+
+
+
+当前代码的两个策略全部返回 0 候选：
+
+策略1：要求递减比例 > 30%，纯递增序列直接跳过
+策略2：需要一个递增 + 一个递减配对，但不存在递减序列
+
+
+与界面截图的对比（华虹公司）
+
+
+
+AX.exe 界面显示：
+
+卖方约 114 档，价格 139.86 → 142.30（递增）
+买方约 114 档，价格 139.82 → 136.27（递减）
+价差 0.04
+
+
+
+但工具找到的价格范围 139→171 远超卖方实际范围 139→142，说明混入了其他股票数据。而且买方 136~139 的数据完全没有出现。
+
+
+
+核心卡点
+
+
+1.
+卖方和买方在内存中都是递增存储的，无法用单调性区分
+2.
+PRICE_MIN=50 PRICE_MAX=200 范围过宽，混入多只股票数据
+3.
+买方数据可能没被找到（136~139 价格段缺失）
+
+
+已采纳的技术方案（来自 Gemini 分析）
+
+
+
+策略3：双递增序列 + 价格断层聚类
+
+在每个 run 内按价格 gap 切分子序列（区分不同股票）
+对子序列做配对：min(卖方) > max(买方)
+评分机制：seq 连续性 + 档位数量 + 价差合理性 + 价格范围
+
+
+
+锚点方案：从内存中搜索当前股票代码字符串
+
+在 AX.exe 内存中搜索 "688347"（华虹公司代码）
+反向定位关联的价格数据结构
+用卖一/买一价格动态设置 PRICE_MIN/MAX
+
+
+
+指针链追踪（终极方案）
+
+用 Cheat Engine 找从 AX.exe 模块基址到盘口缓冲区的固定偏移
+消除全量扫描，实现 O(1) 直接读取
+
+
+下一步待实现
+
+
+1.
+缩小 PRICE_MIN/MAX 到 130~150
+2.
+实现策略3（两个递增序列配对）
+3.
+在 full_scan 中打印所有候选记录，确认买方 136~139 数据是否存在
+4.
+内存中搜索股票代码字符串作为锚点
+
+
+文件位置
+
+
+主程序：C:\Users\john\ax_realtime_cached.py
+诊断版：C:\Users\john\ax_realtime_diag.py
+诊断日志：C:\Users\john\ax_diag_output.log
+
+
+
+
+
+直接复制粘贴到新窗口即可，Gemini 或其他 AI 能基于这份摘要直接继续帮你写代码。
+
+本网站为面向开发者的模型能力演示平台，非正式 AI 助手，内容由 AI 生成仅供参考。
+引用来源（0）

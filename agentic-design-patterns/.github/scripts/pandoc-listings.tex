@@ -1,0 +1,48 @@
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{calc}
+
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{framecolor}{RGB}{221,221,221}
+
+% Fix for Dimension too large error - reset maxwidth before each listing
+\makeatletter
+\let\original@lsthk@InitVarsEOL\lsthk@InitVarsEOL
+\def\lsthk@InitVarsEOL{%
+  \global\lst@maxwidth=0pt
+  \original@lsthk@InitVarsEOL
+}
+\makeatother
+
+\lstset{
+  breaklines=true,
+  breakatwhitespace=false,
+  breakindent=0pt,
+  breakautoindent=true,
+  % Set safe linewidth using calc package
+  linewidth=\linewidth-20pt,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  upquote=true,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{framecolor},
+  framesep=5pt,
+  framerule=0.5pt,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=8pt,
+  captionpos=b,
+  aboveskip=10pt,
+  belowskip=10pt,
+  xleftmargin=10pt,
+  xrightmargin=10pt,
+  % Add line continuation marker
+  postbreak=\mbox{\textcolor{gray}{$\hookrightarrow$}\space}
+}

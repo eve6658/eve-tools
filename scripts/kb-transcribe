@@ -1,0 +1,195 @@
+#!/bin/bash
+# kb-transcribe — 通用视频转文字（YouTube/B站/抖音）
+# 用法: kb-transcribe <url> [--model medium] [--lang zh] [--output-dir <dir>]
+#
+# 优先级：字幕 > Whisper（节省算力）
+# YouTube: 自动字幕 → Whisper
+# B站: CC字幕 → Whisper
+# 抖音: 无字幕选项 → Whisper
+
+set -euo pipefail
+
+WHISPER_MODEL="medium"
+LANGUAGE="zh"
+OUTPUT_DIR="/home/adam/Downloads/ytdl/knowledge"
+YTDLP="/home/adam/open_claw_env/bin/yt-dlp"
+PYTHON="/home/adam/open_claw_env/bin/python3"
+
+# 颜色
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+# 解析参数
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --model) WHISPER_MODEL="$2"; shift 2 ;;
+        --lang) LANGUAGE="$2"; shift 2 ;;
+        --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
+        --help|-h)
+            echo "用法: kb-transcribe <URL> [--model base|small|medium|large] [--lang zh] [--output-dir <dir>]"
+            echo ""
+            echo "支持平台: YouTube, Bilibili, 抖音"
+            echo "策略: 优先用字幕（省算力），无字幕时用Whisper"
+            echo ""
+            echo "输出: <output-dir>/<title>/transcript.txt"
+            exit 0
+            ;;
+        *) URL="$1"; shift ;;
+    esac
+done
+
+if [ -z "${URL:-}" ]; then
+    echo -e "${RED}❌ 请提供URL${NC}"
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
+# 检测平台
+detect_platform() {
+    if echo "$URL" | grep -qE 'youtube\.com|youtu\.be'; then
+        echo "youtube"
+    elif echo "$URL" | grep -qE 'bilibili\.com|b23\.tv'; then
+        echo "bilibili"
+    elif echo "$URL" | grep -qE 'douyin\.com|v\.douyin'; then
+        echo "douyin"
+    else
+        echo "unknown"
+    fi
+}
+
+PLATFORM=$(detect_platform)
+echo -e "${GREEN}📡 平台: $PLATFORM${NC}"
+
+# 获取视频信息
+echo "📡 获取视频信息..."
+INFO=$($YTDLP --dump-json --no-download "$URL" 2>/dev/null || true)
+TITLE=$(echo "$INFO" | $PYTHON -c "import sys,json; print(json.load(sys.stdin).get('title','untitled')[:80])" 2>/dev/null || echo "untitled")
+DURATION=$(echo "$INFO" | $PYTHON -c "import sys,json; print(json.load(sys.stdin).get('duration',0))" 2>/dev/null || echo "0")
+
+SAFE_TITLE=$(echo "$TITLE" | sed 's/[\/\\:*?"<>|]/_/g' | head -c 60)
+WORK_DIR="$OUTPUT_DIR/${SAFE_TITLE}"
+mkdir -p "$WORK_DIR"
+
+echo "   标题: $TITLE"
+echo "   时长: ${DURATION}秒"
+
+# ===== 策略1: 尝试下载字幕 =====
+echo ""
+echo "📝 尝试获取字幕..."
+
+SUBTITLE_FILE=""
+SUBTITLE_SUCCESS=false
+
+if [ "$PLATFORM" = "youtube" ]; then
+    # YouTube: 尝试自动字幕
+    echo "   尝试YouTube自动字幕..."
+    $YTDLP --write-auto-sub --sub-lang "$LANGUAGE" --skip-download \
+        --sub-format vtt -o "$WORK_DIR/sub" "$URL" 2>/dev/null || true
+    
+    # 查找生成的字幕文件
+    VTT_FILE=$(find "$WORK_DIR" -name "*.vtt" -o -name "*.srt" 2>/dev/null | head -1)
+    
+    if [ -n "$VTT_FILE" ]; then
+        # 清理字幕格式（去时间戳）
+        $PYTHON -c "
+import re, sys
+with open('$VTT_FILE') as f:
+    text = f.read()
+# 去掉VTT头部和时间戳
+lines = text.split('\n')
+clean = []
+for line in lines:
+    line = line.strip()
+    if not line: continue
+    if line.startswith('WEBVTT'): continue
+    if line.startswith('Kind:'): continue
+    if line.startswith('Language:'): continue
+    if re.match(r'\d{2}:\d{2}', line): continue
+    if re.match(r'^\d+$', line): continue
+    # 去掉HTML标签
+    line = re.sub(r'<[^>]+>', '', line)
+    if line and line not in clean[-1:]:
+        clean.append(line)
+print('\n'.join(clean))
+" > "$WORK_DIR/transcript.txt" 2>/dev/null || true
+        
+        if [ -s "$WORK_DIR/transcript.txt" ]; then
+            SUBTITLE_SUCCESS=true
+            echo -e "   ${GREEN}✅ YouTube字幕获取成功${NC}"
+        fi
+    fi
+
+elif [ "$PLATFORM" = "bilibili" ]; then
+    # B站: 尝试CC字幕
+    echo "   尝试B站CC字幕..."
+    BVID=$(echo "$URL" | grep -oP 'BV\w+' || true)
+    if [ -n "$BVID" ]; then
+        # 用yt-dlp尝试下载字幕
+        $YTDLP --write-sub --write-auto-sub --sub-lang "zh-CN" --skip-download \
+            --sub-format vtt -o "$WORK_DIR/sub" "$URL" 2>/dev/null || true
+        
+        VTT_FILE=$(find "$WORK_DIR" -name "*.vtt" -o -name "*.srt" 2>/dev/null | head -1)
+        if [ -n "$VTT_FILE" ]; then
+            cp "$VTT_FILE" "$WORK_DIR/transcript.txt" 2>/dev/null || true
+            SUBTITLE_SUCCESS=true
+            echo -e "   ${GREEN}✅ B站字幕获取成功${NC}"
+        fi
+    fi
+fi
+
+# ===== 策略2: Whisper转录（字幕失败时） =====
+if [ "$SUBTITLE_SUCCESS" = false ]; then
+    echo -e "   ${YELLOW}⚠️ 无可用字幕，使用Whisper转录...${NC}"
+    echo ""
+    echo "🔊 下载音频..."
+    
+    $YTDLP -x --audio-format wav --audio-quality 0 \
+        -o "$WORK_DIR/audio.%(ext)s" "$URL" 2>/dev/null || true
+    
+    AUDIO_FILE=$(find "$WORK_DIR" -name "*.wav" -o -name "*.mp3" -o -name "*.m4a" 2>/dev/null | head -1)
+    
+    if [ -z "$AUDIO_FILE" ]; then
+        echo -e "${RED}❌ 音频下载失败${NC}"
+        exit 1
+    fi
+    
+    # 如果不是wav，转换
+    if [[ "$AUDIO_FILE" != *.wav ]]; then
+        ffmpeg -i "$AUDIO_FILE" -vn -acodec pcm_s16le -ar 16000 -ac 1 "$WORK_DIR/audio.wav" -y 2>/dev/null
+        AUDIO_FILE="$WORK_DIR/audio.wav"
+    fi
+    
+    echo "   音频: $(du -h "$AUDIO_FILE" | cut -f1)"
+    echo ""
+    echo "📝 Whisper转录 (模型: $WHISPER_MODEL)..."
+    
+    whisper "$AUDIO_FILE" \
+        --model "$WHISPER_MODEL" \
+        --language "$LANGUAGE" \
+        --output_format txt \
+        --output_dir "$WORK_DIR" \
+        2>&1 | tail -5
+    
+    # 重命名
+    WHISPER_OUT=$(find "$WORK_DIR" -name "*.txt" ! -name "transcript.txt" ! -name "README.txt" 2>/dev/null | head -1)
+    if [ -n "$WHISPER_OUT" ]; then
+        mv "$WHISPER_OUT" "$WORK_DIR/transcript.txt"
+    fi
+fi
+
+# ===== 输出结果 =====
+if [ -f "$WORK_DIR/transcript.txt" ] && [ -s "$WORK_DIR/transcript.txt" ]; then
+    CHARS=$(wc -c < "$WORK_DIR/transcript.txt")
+    LINES=$(wc -l < "$WORK_DIR/transcript.txt")
+    echo ""
+    echo -e "${GREEN}✅ 完成！${NC}"
+    echo "   文件: $WORK_DIR/transcript.txt"
+    echo "   字数: $CHARS | 行数: $LINES"
+    echo "   来源: $URL"
+else
+    echo -e "${RED}❌ 转录失败${NC}"
+    exit 1
+fi

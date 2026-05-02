@@ -1,0 +1,55 @@
+C:\WINDOWS\system32>python -c "print('hello')"
+hello
+
+C:\WINDOWS\system32>python -u C:\Users\john\ax_realtime_cached.py 2>&1
+
+C:\WINDOWS\system32>python -c "
+
+C:\WINDOWS\system32>import sys
+'import' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>try:
+'try:' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>    with open(r'C:\Users\john\ax_realtime_cached.py', 'r', encoding='utf-8') as f:
+'with' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>        code = f.read()
+'code' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>    print(f'文件大小: {len(code)} 字符')
+无法初始化设备 PRN
+
+C:\WINDOWS\system32>    print(f'前100字符: {code[:100]}')
+无法初始化设备 PRN
+
+C:\WINDOWS\system32>    compile(code, 'ax_realtime_cached.py', 'exec')
+'compile' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>    print('语法检查通过')
+无法初始化设备 PRN
+
+C:\WINDOWS\system32>except SyntaxError as e:
+'except' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>    print(f'语法错误: {e}')
+无法初始化设备 PRN
+
+C:\WINDOWS\system32>except Exception as e:
+'except' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>    print(f'其他错误: {e}')
+无法初始化设备 PRN
+
+C:\WINDOWS\system32>"
+'"' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+
+C:\WINDOWS\system32>
