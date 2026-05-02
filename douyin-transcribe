@@ -1,0 +1,219 @@
+#!/bin/bash
+# douyin-transcribe — 抖音视频/图文下载+转录/OCR
+# 用法: douyin-transcribe <url> [--model base|small|medium|large] [--output-dir <dir>]
+
+set -e
+
+# 默认参数
+WHISPER_MODEL="medium"
+OUTPUT_DIR="/home/adam/Downloads/ytdl/transcribes"
+LANGUAGE="zh"
+
+# 解析参数
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --model) WHISPER_MODEL="$2"; shift 2 ;;
+        --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
+        --help|-h)
+            echo "用法: douyin-transcribe <抖音URL> [--model base|small|medium|large] [--output-dir <dir>]"
+            echo ""
+            echo "流程: 解析短链 → 判断类型 → 视频:Whisper转录 / 图文:Tesseract OCR → 输出txt"
+            echo ""
+            echo "模型选择:"
+            echo "  base   - 最快，中文偶尔错字 (~1GB)"
+            echo "  small  - 平衡，中文较准 (~2GB)"
+            echo "  medium - 推荐，中文准确 (~4GB)"
+            echo "  large  - 最准，但最慢 (~8GB)"
+            exit 0
+            ;;
+        *) URL="$1"; shift ;;
+    esac
+done
+
+if [ -z "$URL" ]; then
+    echo "❌ 请提供抖音URL"
+    exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
+echo "📡 解析抖音短链..."
+# 跟随重定向获取真实URL
+REDIRECT_URL=$(curl -sL -o /dev/null -w '%{url_effective}' -H 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X)' "$URL" 2>/dev/null || true)
+
+# 提取note_id
+NOTE_ID=$(echo "$REDIRECT_URL" | grep -oP '/note/\K\d+' || true)
+if [ -z "$NOTE_ID" ]; then
+    NOTE_ID=$(echo "$REDIRECT_URL" | grep -oP '/video/\K\d+' || true)
+fi
+
+if [ -z "$NOTE_ID" ]; then
+    echo "❌ 无法解析URL: $URL"
+    echo "   重定向到: $REDIRECT_URL"
+    exit 1
+fi
+
+echo "   Note ID: $NOTE_ID"
+
+# 获取页面数据
+echo "📡 获取作品信息..."
+PAGE_HTML=$(curl -sL -H 'User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X)' "$URL" 2>/dev/null)
+
+# 提取 _ROUTER_DATA
+ROUTER_DATA=$(echo "$PAGE_HTML" | grep -oP 'window\._ROUTER_DATA\s*=\s*\K{.*?}(?=;\s*</script)' || true)
+
+if [ -z "$ROUTER_DATA" ]; then
+    echo "❌ 无法获取页面数据"
+    exit 1
+fi
+
+# 判断类型并处理
+HAS_VIDEO=$(echo "$ROUTER_DATA" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    item = data['loaderData']['note_(id)/page']['videoInfoRes']['item_list'][0]
+    print('yes' if item.get('video') else 'no')
+except:
+    print('error')
+" 2>/dev/null || echo "error")
+
+TITLE=$(echo "$ROUTER_DATA" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    item = data['loaderData']['note_(id)/page']['videoInfoRes']['item_list'][0]
+    print(item.get('desc', 'untitled')[:80])
+except:
+    print('untitled')
+" 2>/dev/null || echo "untitled")
+
+# 清理文件名
+SAFE_TITLE=$(echo "$TITLE" | sed 's/[\/\\:*?"<>|]/_/g' | head -c 60)
+WORK_DIR="$OUTPUT_DIR/${NOTE_ID}_${SAFE_TITLE}"
+mkdir -p "$WORK_DIR"
+
+echo "   标题: $TITLE"
+echo "   类型: $HAS_VIDEO"
+
+if [ "$HAS_VIDEO" = "yes" ]; then
+    # ===== 视频流程 =====
+    echo ""
+    echo "🎬 下载视频..."
+    VIDEO_URL=$(echo "$ROUTER_DATA" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    item = data['loaderData']['note_(id)/page']['videoInfoRes']['item_list'][0]
+    urls = item['video']['play_addr']['url_list']
+    print(urls[0])
+except:
+    pass
+" 2>/dev/null)
+
+    if [ -z "$VIDEO_URL" ]; then
+        echo "❌ 无法获取视频URL"
+        exit 1
+    fi
+
+    curl -sL -o "$WORK_DIR/video.mp4" \
+        -H 'User-Agent: com.ss.android.ugc.aweme/230901' \
+        "$VIDEO_URL"
+
+    if [ ! -f "$WORK_DIR/video.mp4" ] || [ $(stat -c%s "$WORK_DIR/video.mp4" 2>/dev/null || echo 0) -lt 10000 ]; then
+        echo "❌ 视频下载失败"
+        exit 1
+    fi
+
+    VIDEO_SIZE=$(du -h "$WORK_DIR/video.mp4" | cut -f1)
+    echo "   ✅ 视频: $VIDEO_SIZE"
+
+    echo ""
+    echo "🔊 提取音频..."
+    ffmpeg -i "$WORK_DIR/video.mp4" -vn -acodec pcm_s16le -ar 16000 -ac 1 "$WORK_DIR/audio.wav" -y 2>/dev/null
+    echo "   ✅ 音频: $(du -h "$WORK_DIR/audio.wav" | cut -f1)"
+
+    echo ""
+    echo "📝 Whisper转录 (模型: $WHISPER_MODEL)..."
+    whisper "$WORK_DIR/audio.wav" \
+        --model "$WHISPER_MODEL" \
+        --language "$LANGUAGE" \
+        --output_format txt \
+        --output_dir "$WORK_DIR" \
+        2>&1 | tail -5
+
+    # 重命名输出
+    if [ -f "$WORK_DIR/audio.txt" ]; then
+        mv "$WORK_DIR/audio.txt" "$WORK_DIR/全文转录.txt"
+        CHARS=$(wc -c < "$WORK_DIR/全文转录.txt")
+        echo ""
+        echo "✅ 完成！"
+        echo "   文件: $WORK_DIR/全文转录.txt"
+        echo "   字数: $CHARS"
+    else
+        echo "❌ 转录失败"
+        exit 1
+    fi
+
+else
+    # ===== 图文流程 =====
+    echo ""
+    echo "🖼️ 下载图片..."
+    IMG_COUNT=$(echo "$ROUTER_DATA" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    item = data['loaderData']['note_(id)/page']['videoInfoRes']['item_list'][0]
+    images = item.get('images', [])
+    print(len(images))
+    for i, img in enumerate(images):
+        urls = img.get('url_list', [])
+        if urls:
+            print(urls[0])
+except:
+    pass
+" 2>/dev/null)
+
+    TOTAL_IMGS=$(echo "$IMG_COUNT" | head -1)
+    echo "   共 $TOTAL_IMGS 张图片"
+
+    echo "$IMG_COUNT" | tail -n +2 | while IFS= read -r img_url; do
+        [ -z "$img_url" ] && continue
+        IDX=$(echo "$img_url" | grep -oP 'page_\K\d+' || echo "0")
+        if [ "$IDX" = "0" ]; then
+            IDX=$(( $(ls "$WORK_DIR"/page_* 2>/dev/null | wc -l) + 1 ))
+        fi
+        EXT=".webp"
+        curl -sL -o "$WORK_DIR/page_${IDX}${EXT}" \
+            -H 'User-Agent: com.ss.android.ugc.aweme/230901' \
+            "$img_url"
+        SIZE=$(stat -c%s "$WORK_DIR/page_${IDX}${EXT}" 2>/dev/null || echo 0)
+        if [ "$SIZE" -gt 1000 ]; then
+            echo "   ✅ page_${IDX} ($(echo "scale=0; $SIZE/1024" | bc)KB)"
+        fi
+    done
+
+    echo ""
+    echo "📝 Tesseract OCR..."
+    > "$WORK_DIR/全文OCR.txt"
+    for img in "$WORK_DIR"/page_*.webp "$WORK_DIR"/page_*.jpg; do
+        [ -f "$img" ] || continue
+        BASE=$(basename "$img")
+        RESULT=$(tesseract "$img" - -l chi_sim 2>/dev/null || true)
+        if [ -n "$RESULT" ]; then
+            echo "=== $BASE ===" >> "$WORK_DIR/全文OCR.txt"
+            echo "$RESULT" >> "$WORK_DIR/全文OCR.txt"
+            echo "" >> "$WORK_DIR/全文OCR.txt"
+        fi
+    done
+
+    CHARS=$(wc -c < "$WORK_DIR/全文OCR.txt")
+    echo ""
+    echo "✅ 完成！"
+    echo "   文件: $WORK_DIR/全文OCR.txt"
+    echo "   字数: $CHARS"
+fi
+
+echo ""
+echo "📁 输出目录: $WORK_DIR"
+ls -la "$WORK_DIR/" | grep -v "^total\|^d"
