@@ -1,60 +1,71 @@
 # eve-tools
 
-减少token消耗的CLI工具集。让本地模型/Agent高效建立知识库。
+Token-efficient CLI tools for building local AI knowledge bases.
 
-## 工具列表
+Collect knowledge from video/audio sources without burning tokens on transcription when you don't have to.
 
-| 工具 | 功能 | 用法 |
-|------|------|------|
-| `kb-transcribe` | 通用视频转文字（YouTube/B站/抖音） | `kb-transcribe <url>` |
-| `douyin-transcribe` | 抖音专用（视频+图文OCR） | `douyin-transcribe <url>` |
-| `ytdl` | 视频下载（YouTube/B站/抖音） | `ytdl video/audio/info <url>` |
+## Tools
 
-## 核心思路
+| Tool | What it does | Usage |
+|------|-------------|-------|
+| `kb-transcribe` | Universal transcriber (YouTube / Bilibili / Douyin). Subtitle-first strategy — grabs existing captions (near-zero cost) before falling back to Whisper. | `kb-transcribe <url>` |
+| `douyin-transcribe` | Douyin specialist. Handles slideshows and image-heavy posts via OCR when there's no audio. | `douyin-transcribe <url>` |
+| `ytdl` | Video downloader. Pull raw media for offline processing. | `ytdl video/audio/info <url>` |
 
-**原始流程**（消耗大量token）：
+## Why
+
+Building a local knowledge base from video content is expensive if you transcribe everything. Most videos already have subtitles — `kb-transcribe` grabs those first, only invoking Whisper when needed.
+
+**Before (token-heavy):**
 ```
-AI下载视频 → AI调ffmpeg → AI调Whisper → AI整理格式
-= 4-6次工具调用 + 大量输出token
-```
-
-**封装后**（节省90%+ token）：
-```
-AI调用一行命令 → 得到结果
-= 1次工具调用
+AI downloads video → AI calls ffmpeg → AI calls Whisper → AI formats output
+= 4-6 tool calls + massive output tokens
 ```
 
-## 知识库构建流程
+**After (token-efficient):**
+```
+AI runs one command → gets result
+= 1 tool call
+```
+
+## Quick Start
 
 ```bash
-# 1. 批量转录（夜间跑，不急）
-kb-transcribe https://www.youtube.com/watch?v=xxx --model large
-kb-transcribe https://www.bilibili.com/video/BVxxx
-kb-transcribe https://v.douyin.com/xxx
+# Single URL
+kb-transcribe https://www.youtube.com/watch?v=...
 
-# 2. 整理成知识库
-cat ~/Downloads/ytdl/knowledge/*/transcript.txt > knowledge-base.txt
+# Batch mode — one URL per line, process overnight
+cat urls.txt | kb-transcribe --batch
 
-# 3. 喂给本地模型
-ollama run miMo-7b < knowledge-base.txt
+# Douyin (video or image posts)
+douyin-transcribe https://v.douyin.com/...
+
+# Just download
+ytdl video "https://www.youtube.com/watch?v=..."
+ytdl audio "https://www.youtube.com/watch?v=..."
+ytdl info "https://youtu.be/..."
 ```
 
-## 安装
+## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/eve-tools.git
+git clone https://github.com/eve6658/eve-tools.git
 cd eve-tools
 chmod +x *
 export PATH="$PWD:$PATH"
 ```
 
-## 依赖
+## Dependencies
 
-- yt-dlp (`pip install yt-dlp`)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `pip install yt-dlp`
 - ffmpeg
-- whisper (`pip install openai-whisper`)
+- [whisper](https://github.com/openai/whisper) — `pip install openai-whisper`
 - tesseract (OCR, optional)
 - Python 3
+
+## Philosophy
+
+Knowledge should be extracted, not generated. Subtitles are free. OCR is cheap. Whisper is a last resort. Save your tokens for thinking, not transcribing.
 
 ## License
 
