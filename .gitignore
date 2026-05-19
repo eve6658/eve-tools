@@ -1,0 +1,44 @@
+# 敏感文件
+MEMORY.md
+USER.md
+TOOLS.md
+SOUL.md
+AGENTS.md
+IDENTITY.md
+HEARTBEAT.md
+BOOTSTRAP.md
+
+# 记忆目录
+memory/
+
+# 备份目录
+backup/
+backup_*/
+backup_*/
+
+# 临时文件
+tmp_*/
+*.tmp
+*.pyc
+__pycache__/
+
+# 截图
+*.jpg
+*.png
+*.jpeg
+
+# 数据文件
+*.bin
+*.db
+trading_data/
+orderbook_data/
+
+# 环境
+.env
+*.env
+node_modules/
+
+# 大文件
+*.zip
+*.tar.gz
+sherpa-onnx-models/
