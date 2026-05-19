@@ -1,38 +1,57 @@
-# L2 Hook 项目
+# 通达信 L2 数据捕获
 
-## 目标
-通过 Frida hook AX.exe 的 recv/WSARecv 函数，截获 Level-2 行情原始网络数据。
+通过 Frida hook AX.exe 的 recv/WSARecv，捕获通达信客户端的网络数据流。
 
-## 背景
-- 内存扫描方案（l2_main_v2.py）存在性能和稳定性问题
-- AX.exe 32-bit，Level-2 数据单独注册登录
-- 内存中数据为明文（20字节/条：price float32 + vol + cnt + status + seq）
-- 网络数据大概率也是明文
+## 协议格式
 
-## 工具栈
-- Python 3.13 + Frida 17.9.10
-- Wireshark/tshark 4.6.4（抓包验证）
-- x64dbg（调试）
+```
+TCP 明文 → FD FD FD FD + 8字节ASCII hex长度 + payload → zlib → JSON(GBK)
+```
 
-## 执行路线图
-参照《证券客户端网络层数据采集执行路线图》
+### 帧结构
+| 偏移 | 长度 | 说明 |
+|------|------|------|
+| 0 | 4 | Magic: `FD FD FD FD` |
+| 4 | 8 | ASCII 十六进制 payload 长度 |
+| 12 | N | payload 数据 |
 
-### Step 1-2: ✅ 工具安装 + 进程确认
-### Step 3: hook_recv.py — Hook recv/WSARecv
-### Step 4: 验证数据流
-### Step 5: 关键实验（不切股票是否有数据）
-### Step 6: 保存原始数据包
-### Step 7: 观察协议结构
+### 消息类型
+| Route | 内容 |
+|-------|------|
+| `push_notify_msg` | 推送通知 |
+| `S200004` | 选股结果/订阅推送 |
 
-## 文件
-- `hook_recv.py` — 主 hook 脚本
-- `raw_packets/` — 原始数据包存储
-- `work_log.md` — 工作日志
+## 使用
 
-## 当前状态
-- [x] Frida 已安装 (17.9.10)
-- [x] Wireshark 已安装 (4.6.4)
-- [x] hook_recv.py 已编写
-- [ ] Hook 测试运行
-- [ ] 数据流验证
-- [ ] 协议分析
+### 捕获数据
+```bash
+# 自动捕获（9:15-15:05）
+python tdx_capture.py
+
+# 指定时长
+python tdx_capture.py --hours 4
+python tdx_capture.py --until 11:30
+```
+
+### 解码数据
+```bash
+python decode_v2.py <packets_file.bin>
+```
+
+## AX.exe 连接
+
+| 远端 | 端口 | 用途 |
+|------|------|------|
+| 59.36.5.11 | 9902 | 行情主站 |
+| 101.230.126.11 | 8205 | 登录/认证 |
+| 123.125.108.247-249 | 6928 | L2 数据通道 |
+
+## 文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `tdx_capture.py` | 自动捕获（推荐） |
+| `hook_recv.py` | 基础版 Frida hook |
+| `simple_capture.py` | 简单 raw 捕获 |
+| `decode_v2.py` | 离线解码 |
+| `test_*.py` | 各种测试脚本 |
